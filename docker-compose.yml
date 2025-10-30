@@ -1,0 +1,47 @@
+version: '3.8'
+
+services:
+  mongodb:
+    image: mongo:7
+    container_name: travion-mongodb
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: password123
+      MONGO_INITDB_DATABASE: travion-backend
+    ports:
+      - '27017:27017'
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - travion-network
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: travion-backend
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - MONGODB_URI=mongodb://admin:password123@mongodb:27017/travion-backend?authSource=admin
+      - JWT_SECRET=your-super-secret-jwt-key-change-this
+      - JWT_EXPIRES_IN=7d
+      - JWT_REFRESH_SECRET=your-super-secret-refresh-key-change-this
+      - JWT_REFRESH_EXPIRES_IN=30d
+      - CORS_ORIGIN=http://localhost:3000
+      - LOG_LEVEL=info
+    ports:
+      - '3000:3000'
+    depends_on:
+      - mongodb
+    networks:
+      - travion-network
+
+volumes:
+  mongodb_data:
+
+networks:
+  travion-network:
+    driver: bridge
