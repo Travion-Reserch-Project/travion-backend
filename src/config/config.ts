@@ -32,9 +32,10 @@ interface Config {
   };
 }
 
-const config: Config = {
+//Get configuration dynamically from process.env
+const getConfig = (): Config => ({
   env: process.env.NODE_ENV || 'development',
-  port: parseInt(process.env.PORT || '3000', 10),
+  port: parseInt(process.env.PORT || '3001', 10),
   apiVersion: process.env.API_VERSION || 'v1',
   database: {
     uri: process.env.MONGODB_URI || 'mongodb://localhost:27017/travion-backend',
@@ -58,6 +59,14 @@ const config: Config = {
     sameSite: process.env.NODE_ENV === 'production' ? 'strict' : 'lax',
     maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days in milliseconds
   },
-};
+});
+
+// Export a Proxy that always gets fresh values from process.env
+const config = new Proxy({} as Config, {
+  get(_target, prop: keyof Config) {
+    const currentConfig = getConfig();
+    return currentConfig[prop];
+  },
+});
 
 export default config;
