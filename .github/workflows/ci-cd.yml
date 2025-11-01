@@ -17,7 +17,7 @@ jobs:
   test:
     name: Test & Lint
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -53,12 +53,12 @@ jobs:
     permissions:
       contents: read
       packages: write
-    
+
     outputs:
-      image-tag: ${{ steps.meta.outputs.tags }}
+      image-tag: ${{ steps.image-output.outputs.tag }}
       image-digest: ${{ steps.build.outputs.digest }}
       branch: ${{ github.ref_name }}
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -77,7 +77,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}
+          images: ${{ env.REGISTRY }}/travion-reserch-project/${{ env.IMAGE_NAME }}
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
             type=raw,value=develop,enable=${{ github.ref == 'refs/heads/develop' }}
@@ -97,11 +97,16 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      - name: Output image tag for security scan
+        id: image-output
+        run: |
+          echo "tag=ghcr.io/travion-reserch-project/${{ env.IMAGE_NAME }}:${{ github.ref_name }}" >> $GITHUB_OUTPUT
+
       - name: Image built successfully
         run: |
           echo "✅ Image built and pushed to GHCR"
           echo "📦 Tags: ${{ steps.meta.outputs.tags }}"
-          echo "🔗 Image: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}"
+          echo "🔗 Image: ghcr.io/travion-reserch-project/${{ env.IMAGE_NAME }}:${{ github.ref_name }}"
 
   # Job 3: Security scanning
   security-scan:
@@ -111,15 +116,22 @@ jobs:
     permissions:
       contents: read
       security-events: write
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}-${{ github.sha }}
+          image-ref: ${{ needs.build-and-push.outputs.image-tag }}
           format: 'sarif'
           output: 'trivy-results.sarif'
           severity: 'CRITICAL,HIGH'
@@ -134,7 +146,7 @@ jobs:
       - name: Run Trivy in table format
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}-${{ github.sha }}
+          image-ref: ${{ needs.build-and-push.outputs.image-tag }}
           format: 'table'
           severity: 'CRITICAL,HIGH,MEDIUM'
 
@@ -144,7 +156,7 @@ jobs:
     needs: [build-and-push, security-scan]
     runs-on: ubuntu-latest
     if: github.event_name == 'push'
-    
+
     steps:
       - name: Trigger infrastructure deployment workflow
         uses: peter-evans/repository-dispatch@v3
@@ -157,7 +169,7 @@ jobs:
               "service": "backend",
               "branch": "${{ github.ref_name }}",
               "sha": "${{ github.sha }}",
-              "image": "${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}",
+              "image": "${{ needs.build-and-push.outputs.image-tag }}",
               "triggered_by": "${{ github.actor }}"
             }
 
