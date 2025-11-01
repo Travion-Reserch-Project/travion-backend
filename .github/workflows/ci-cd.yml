@@ -36,12 +36,10 @@ jobs:
         continue-on-error: true
 
       - name: Run type check
-        run: npm run type-check || npx tsc --noEmit
+        run: npm run type-check
 
       - name: Run tests
         run: npm test
-        env:
-          NODE_ENV: test
 
       - name: Build TypeScript
         run: npm run build
