@@ -151,7 +151,7 @@ jobs:
           format: 'table'
           severity: 'CRITICAL,HIGH,MEDIUM'
 
-  # Job 4: Trigger infrastructure deployment
+  # Job 4: Trigger infrastructure deployment (optional - requires INFRASTRUCTURE_REPO_TOKEN secret)
   trigger-deployment:
     name: Trigger Infrastructure Deployment
     needs: [build-and-push, security-scan]
@@ -159,7 +159,18 @@ jobs:
     if: github.event_name == 'push'
 
     steps:
+      - name: Check if infrastructure token exists
+        id: check-token
+        run: |
+          if [ -z "${{ secrets.INFRASTRUCTURE_REPO_TOKEN }}" ]; then
+            echo "skip=true" >> $GITHUB_OUTPUT
+            echo "⚠️ INFRASTRUCTURE_REPO_TOKEN not configured - skipping deployment trigger"
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Trigger infrastructure deployment workflow
+        if: steps.check-token.outputs.skip != 'true'
         uses: peter-evans/repository-dispatch@v3
         with:
           token: ${{ secrets.INFRASTRUCTURE_REPO_TOKEN }}
@@ -175,6 +186,7 @@ jobs:
             }
 
       - name: Deployment triggered
+        if: steps.check-token.outputs.skip != 'true'
         run: |
           echo "✅ Infrastructure deployment triggered"
           echo "🔗 Check: https://github.com/Travion-Reserch-Project/infrastructure/actions"
