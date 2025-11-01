@@ -1,6 +1,4 @@
 name: Build Only - No Deployment
-# Approach 2: Infrastructure-Controlled Deployment
-# This file replaces the deployment section in service repos
 
 on:
   push:
@@ -151,7 +149,7 @@ jobs:
           format: 'table'
           severity: 'CRITICAL,HIGH,MEDIUM'
 
-  # Job 4: Trigger infrastructure deployment (optional - requires INFRASTRUCTURE_REPO_TOKEN secret)
+  # Job 4: Trigger infrastructure deployment
   trigger-deployment:
     name: Trigger Infrastructure Deployment
     needs: [build-and-push, security-scan]
