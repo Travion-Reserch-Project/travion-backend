@@ -1,22 +1,18 @@
 import { Router } from 'express';
+import { readFileSync } from 'fs';
+import { join } from 'path';
 import authRoutes from './authRoutes';
 import userRoutes from './userRoutes';
 
 const router = Router();
 
-// Root API endpoint
+// Load HTML template
+const apiLandingTemplate = readFileSync(join(__dirname, '../templates/apiLanding.html'), 'utf-8');
+
+// Root API endpoint with beautiful HTML template
 router.get('/', (_req, res) => {
-  res.status(200).json({
-    success: true,
-    message: 'Travion Backend API',
-    version: '1.0.0',
-    endpoints: {
-      health: '/api/1/health',
-      auth: '/api/1/auth',
-      users: '/api/1/users',
-    },
-    timestamp: new Date().toISOString(),
-  });
+  const html = apiLandingTemplate.replace('{{TIMESTAMP}}', new Date().toISOString());
+  res.status(200).send(html);
 });
 
 // Health check endpoint
