@@ -180,7 +180,13 @@ jobs:
               "branch": "${{ github.ref_name }}",
               "sha": "${{ github.sha }}",
               "image": "${{ needs.build-and-push.outputs.image-tag }}",
-              "triggered_by": "${{ github.actor }}"
+              "triggered_by": "${{ github.actor }}",
+              "infisical": {
+                "client_id": "${{ secrets.INFISICAL_CLIENT_ID }}",
+                "client_secret": "${{ secrets.INFISICAL_CLIENT_SECRET }}",
+                "project_id": "${{ secrets.INFISICAL_PROJECT_ID }}",
+                "environment": "${{ secrets.INFISICAL_ENVIRONMENT || 'prod' }}"
+              }
             }
 
       - name: Deployment triggered
