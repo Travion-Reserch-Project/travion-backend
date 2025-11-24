@@ -12,7 +12,11 @@
     "format": "prettier --write \"src/**/*.ts\"",
     "format:check": "prettier --check \"src/**/*.ts\"",
     "type-check": "tsc --noEmit",
-    "test": "echo \"No tests yet\" && exit 0"
+    "test": "echo \"No tests yet\" && exit 0",
+    "docker:build": "docker build -t travion-backend:local .",
+    "docker:run": "docker run -p 3001:3001 --env-file .env travion-backend:local",
+    "docker:test": "npm run docker:build && npm run docker:run",
+    "docker:scan": "docker run --rm aquasec/trivy:latest image travion-backend:local"
   },
   "keywords": [
     "nodejs",
