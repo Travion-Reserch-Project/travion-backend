@@ -6,6 +6,8 @@ export interface IUser extends Document {
   password: string;
   firstName: string;
   lastName: string;
+  gender: 'Male' | 'Female' | 'Other';
+  dob: Date;
   isActive: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -37,6 +39,14 @@ const userSchema = new Schema<IUser>(
       type: String,
       required: [true, 'Last name is required'],
       trim: true,
+    },
+    gender: {
+      type: String,
+      enum: ['Male', 'Female', 'Other'],
+      required: [false, 'Gender is not required'],
+    },
+    dob: {
+      type: Date,
     },
     isActive: {
       type: Boolean,
