@@ -30,6 +30,11 @@ interface Config {
     sameSite: 'strict' | 'lax' | 'none';
     maxAge: number;
   };
+  google: {
+    clientId: string;
+    clientSecret: string;
+    callbackUrl: string;
+  };
 }
 
 //Get configuration dynamically from process.env
@@ -57,7 +62,13 @@ const getConfig = (): Config => ({
     secure: process.env.NODE_ENV === 'production',
     httpOnly: true,
     sameSite: process.env.NODE_ENV === 'production' ? 'strict' : 'lax',
-    maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days in milliseconds
+    maxAge: 7 * 24 * 60 * 60 * 1000,
+  },
+  google: {
+    clientId: process.env.GOOGLE_CLIENT_ID || '',
+    clientSecret: process.env.GOOGLE_CLIENT_SECRET || '',
+    callbackUrl:
+      process.env.GOOGLE_CALLBACK_URL || 'http://localhost:3001/api/v1/auth/google/callback',
   },
 });
 

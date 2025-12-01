@@ -8,35 +8,35 @@ const router = Router();
 const userController = new UserController();
 
 // All routes require authentication
-router.use(authenticate);
+router.use(authenticate as any);
 
 /**
  * @route   GET /api/v1/users/profile
  * @desc    Get current user profile
  * @access  Private
  */
-router.get('/profile', userController.getProfile);
+router.get('/profile', userController.getProfile as any);
 
 /**
  * @route   PUT /api/v1/users/profile
  * @desc    Update current user profile
  * @access  Private
  */
-router.put('/profile', validate(updateUserSchema), userController.updateProfile);
+router.put('/profile', validate(updateUserSchema), userController.updateProfile as any);
 
 /**
  * @route   GET /api/v1/users
  * @desc    Get all users (with pagination)
  * @access  Private
  */
-router.get('/', validateQuery(paginationSchema), userController.getAllUsers);
+router.get('/', validateQuery(paginationSchema), userController.getAllUsers as any);
 
 /**
  * @route   GET /api/v1/users/:id
  * @desc    Get user by ID
  * @access  Private
  */
-router.get('/:id', validateParams(userIdSchema), userController.getUserById);
+router.get('/:id', validateParams(userIdSchema), userController.getUserById as any);
 
 /**
  * @route   PUT /api/v1/users/:id
@@ -47,7 +47,7 @@ router.put(
   '/:id',
   validateParams(userIdSchema),
   validate(updateUserSchema),
-  userController.updateUser
+  userController.updateUser as any
 );
 
 /**
@@ -55,6 +55,6 @@ router.put(
  * @desc    Delete user by ID
  * @access  Private
  */
-router.delete('/:id', validateParams(userIdSchema), userController.deleteUser);
+router.delete('/:id', validateParams(userIdSchema), userController.deleteUser as any);
 
 export default router;

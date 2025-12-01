@@ -21,6 +21,8 @@ import {
   mongoSanitizeConfig,
   hppWhitelist,
 } from './config/security';
+// Import passport configuration
+import './config/passport';
 
 class App {
   public app: Application;

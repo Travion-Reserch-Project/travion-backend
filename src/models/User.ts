@@ -3,12 +3,16 @@ import bcrypt from 'bcryptjs';
 
 export interface IUser extends Document {
   email: string;
-  password: string;
+  password?: string; // Made optional for OAuth users
   firstName: string;
   lastName: string;
   gender: 'Male' | 'Female' | 'Other';
   dob: Date;
   isActive: boolean;
+  // Google OAuth fields
+  googleId?: string;
+  profilePicture?: string;
+  provider: 'local' | 'google';
   createdAt: Date;
   updatedAt: Date;
   comparePassword(candidatePassword: string): Promise<boolean>;
@@ -26,7 +30,9 @@ const userSchema = new Schema<IUser>(
     },
     password: {
       type: String,
-      required: [true, 'Password is required'],
+      required: function (this: IUser) {
+        return this.provider === 'local'; // Only required for local auth
+      },
       minlength: [6, 'Password must be at least 6 characters long'],
       select: false,
     },
@@ -52,6 +58,20 @@ const userSchema = new Schema<IUser>(
       type: Boolean,
       default: true,
     },
+    // Google OAuth fields
+    googleId: {
+      type: String,
+      sparse: true, // Allows multiple null values but unique non-null values
+    },
+    profilePicture: {
+      type: String,
+    },
+    provider: {
+      type: String,
+      enum: ['local', 'google'],
+      default: 'local',
+      required: true,
+    },
   },
   {
     timestamps: true,
@@ -65,9 +85,9 @@ const userSchema = new Schema<IUser>(
   }
 );
 
-// Hash password before saving
+// Hash password before saving (only for local auth)
 userSchema.pre('save', async function (next) {
-  if (!this.isModified('password')) {
+  if (!this.isModified('password') || this.provider !== 'local' || !this.password) {
     return next();
   }
 
@@ -80,8 +100,11 @@ userSchema.pre('save', async function (next) {
   }
 });
 
-// Method to compare passwords
+// Method to compare passwords (only for local auth)
 userSchema.methods.comparePassword = async function (candidatePassword: string): Promise<boolean> {
+  if (this.provider !== 'local' || !this.password) {
+    return false;
+  }
   return bcrypt.compare(candidatePassword, this.password);
 };
 

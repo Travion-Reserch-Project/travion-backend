@@ -411,6 +411,38 @@
             Login with email and password (returns JWT + cookie)
           </div>
         </div>
+        <div class="endpoint-card">
+          <div class="endpoint-header">
+            <span class="method get">GET</span>
+            <span class="endpoint-path">/api/1/auth/google</span>
+          </div>
+          <div class="endpoint-description">
+            🚀 Login with Google OAuth - Redirects to Google signin
+          </div>
+        </div>
+        <div class="endpoint-card">
+          <div class="endpoint-header">
+            <span class="method get">GET</span>
+            <span class="endpoint-path">/api/1/auth/google/callback</span>
+          </div>
+          <div class="endpoint-description">
+            Google OAuth callback - Handles Google authentication response
+          </div>
+        </div>
+        <div class="endpoint-card">
+          <div class="endpoint-header">
+            <span class="method get">GET</span>
+            <span class="endpoint-path">/api/1/auth/profile</span>
+          </div>
+          <div class="endpoint-description">Get current user profile (requires authentication)</div>
+        </div>
+        <div class="endpoint-card">
+          <div class="endpoint-header">
+            <span class="method post">POST</span>
+            <span class="endpoint-path">/api/1/auth/logout</span>
+          </div>
+          <div class="endpoint-description">Logout user and clear authentication cookies</div>
+        </div>
       </div>
       <div class="footer">
         <div>Built with ❤️ by Travion Research Project</div>

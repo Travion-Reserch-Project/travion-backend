@@ -1,6 +1,7 @@
 import App from './app';
 import { logger } from './config/logger';
 import { loadInfisicalSecrets } from './config/infisical';
+import { initializeGoogleStrategy } from './config/passport';
 
 async function startServer() {
   try {
@@ -14,8 +15,13 @@ async function startServer() {
       );
 
       logger.info('✅ Secrets loaded from Infisical successfully');
+
+      // Initialize Google OAuth after Infisical secrets are loaded
+      initializeGoogleStrategy();
     } else {
       logger.info('📝 Using local .env file (Infisical not configured)');
+      // Try to initialize Google OAuth with local env vars
+      initializeGoogleStrategy();
     }
 
     const app = new App();
@@ -23,6 +29,10 @@ async function startServer() {
   } catch (error) {
     logger.error('❌ Failed to load secrets from Infisical, falling back to .env:', error);
     logger.info('📝 Using local .env file as fallback');
+
+    // Try to initialize Google OAuth with local env vars
+    initializeGoogleStrategy();
+
     const app = new App();
     app.start();
   }
