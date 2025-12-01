@@ -9,7 +9,6 @@ export interface IUser extends Document {
   gender: 'Male' | 'Female' | 'Other';
   dob: Date;
   isActive: boolean;
-  // Google OAuth fields
   googleId?: string;
   profilePicture?: string;
   provider: 'local' | 'google';
