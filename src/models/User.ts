@@ -3,15 +3,19 @@ import bcrypt from 'bcryptjs';
 
 export interface IUser extends Document {
   email: string;
-  password?: string; // Made optional for OAuth users
+  password?: string;
   firstName: string;
   lastName: string;
   gender: 'Male' | 'Female' | 'Other';
   dob: Date;
   isActive: boolean;
+  profileStatus: 'Incomplete' | 'Complete';
+  country?: string;
+  preferredLanguage?: string;
   googleId?: string;
   profilePicture?: string;
   provider: 'local' | 'google';
+  lastLogin?: Date;
   createdAt: Date;
   updatedAt: Date;
   comparePassword(candidatePassword: string): Promise<boolean>;
@@ -30,7 +34,7 @@ const userSchema = new Schema<IUser>(
     password: {
       type: String,
       required: function (this: IUser) {
-        return this.provider === 'local'; // Only required for local auth
+        return this.provider === 'local';
       },
       minlength: [6, 'Password must be at least 6 characters long'],
       select: false,
@@ -57,10 +61,22 @@ const userSchema = new Schema<IUser>(
       type: Boolean,
       default: true,
     },
-    // Google OAuth fields
+    profileStatus: {
+      type: String,
+      enum: ['Incomplete', 'Complete'],
+      default: 'Incomplete',
+    },
+    country: {
+      type: String,
+      trim: true,
+    },
+    preferredLanguage: {
+      type: String,
+      trim: true,
+    },
     googleId: {
       type: String,
-      sparse: true, // Allows multiple null values but unique non-null values
+      sparse: true,
     },
     profilePicture: {
       type: String,
@@ -70,6 +86,9 @@ const userSchema = new Schema<IUser>(
       enum: ['local', 'google'],
       default: 'local',
       required: true,
+    },
+    lastLogin: {
+      type: Date,
     },
   },
   {

@@ -10,6 +10,7 @@ interface Config {
   apiVersion: string;
   database: {
     uri: string;
+    name: string;
   };
   jwt: {
     secret: string;
@@ -44,6 +45,7 @@ const getConfig = (): Config => ({
   apiVersion: process.env.API_VERSION || 'v1',
   database: {
     uri: process.env.MONGODB_URI || 'mongodb://localhost:27017/travion-backend',
+    name: process.env.DATABASE_NAME || 'travion-backend',
   },
   jwt: {
     secret: process.env.JWT_SECRET || 'your-secret-key',

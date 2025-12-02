@@ -9,11 +9,12 @@ export const connectDatabase = async (): Promise<void> => {
       minPoolSize: 5,
       socketTimeoutMS: 45000,
       serverSelectionTimeoutMS: 5000,
+      dbName: config.database.name,
     };
 
     await mongoose.connect(config.database.uri, options);
 
-    logger.info('MongoDB connected successfully');
+    logger.info(`MongoDB connected successfully to database: ${config.database.name}`);
 
     mongoose.connection.on('error', (error) => {
       logger.error('MongoDB connection error:', error);
