@@ -1,12 +1,13 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
-import config from '../config/config';
 import { AppError } from './errorHandler';
+import { TokenService } from '../services/TokenService';
 
 export interface AuthRequest extends Request {
   user?: {
     id: string;
-    email: string;
+    userId: string;
+    email?: string;
   };
 }
 
@@ -30,13 +31,17 @@ export const authenticate = async (
     }
 
     // Verify token
-    const decoded = jwt.verify(token, config.jwt.secret) as {
-      id: string;
-      email: string;
+    const decoded = TokenService.verifyToken(token) as {
+      userId: string;
+      email?: string;
     };
 
     // Attach user to request
-    req.user = decoded;
+    req.user = {
+      id: decoded.userId, // Map userId to id for compatibility with existing code
+      userId: decoded.userId,
+      email: decoded.email,
+    };
 
     next();
   } catch (error) {
@@ -67,13 +72,17 @@ export const optionalAuth = async (
     }
 
     if (token) {
-      const decoded = jwt.verify(token, config.jwt.secret) as {
-        id: string;
-        email: string;
+      const decoded = TokenService.verifyToken(token) as {
+        userId: string;
+        email?: string;
       };
-      req.user = decoded;
-    }
 
+      req.user = {
+        id: decoded.userId, // Map userId to id for compatibility
+        userId: decoded.userId,
+        email: decoded.email,
+      };
+    }
     next();
   } catch (error) {
     // Ignore authentication errors for optional auth

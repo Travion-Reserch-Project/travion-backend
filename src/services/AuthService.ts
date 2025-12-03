@@ -1,9 +1,7 @@
-import jwt, { SignOptions } from 'jsonwebtoken';
-import type { StringValue } from 'ms';
 import { UserRepository } from '../repositories/UserRepository';
 import { IUser } from '../models/User';
 import { AppError } from '../middleware/errorHandler';
-import config from '../config/config';
+import { TokenService } from './TokenService';
 
 export interface RegisterDTO {
   email: string;
@@ -38,8 +36,7 @@ export class AuthService {
 
     const user = await this.userRepository.create(data);
 
-    const token = this.generateToken(user);
-    const refreshToken = this.generateRefreshToken(user);
+    const { token, refreshToken } = TokenService.generateTokensForUser(user);
 
     return { user, token, refreshToken };
   }
@@ -59,52 +56,29 @@ export class AuthService {
       throw new AppError('Invalid credentials', 401);
     }
 
-    const token = this.generateToken(user);
-    const refreshToken = this.generateRefreshToken(user);
+    const { token, refreshToken } = TokenService.generateTokensForUser(user);
 
     return { user, token, refreshToken };
   }
 
   async refreshToken(refreshToken: string): Promise<{ token: string; refreshToken: string }> {
     try {
-      const decoded = jwt.verify(refreshToken, config.jwt.refreshSecret) as {
-        id: string;
-        email: string;
+      const decoded = TokenService.verifyToken(refreshToken, true) as {
+        userId: string;
+        email?: string;
       };
 
-      const user = await this.userRepository.findById(decoded.id);
+      const user = await this.userRepository.findById(decoded.userId);
       if (!user) {
         throw new AppError('User not found', 404);
       }
 
-      const newToken = this.generateToken(user);
-      const newRefreshToken = this.generateRefreshToken(user);
+      const { token: newToken, refreshToken: newRefreshToken } =
+        TokenService.generateTokensForUser(user);
 
       return { token: newToken, refreshToken: newRefreshToken };
     } catch (error) {
       throw new AppError('Invalid refresh token', 401);
     }
-  }
-
-  private generateToken(user: IUser): string {
-    const payload = {
-      id: (user as unknown as { _id: string })._id,
-      email: user.email,
-    };
-    const options: SignOptions = {
-      expiresIn: config.jwt.expiresIn as StringValue,
-    };
-    return jwt.sign(payload, config.jwt.secret, options);
-  }
-
-  private generateRefreshToken(user: IUser): string {
-    const payload = {
-      id: (user as unknown as { _id: string })._id,
-      email: user.email,
-    };
-    const options: SignOptions = {
-      expiresIn: config.jwt.refreshExpiresIn as StringValue,
-    };
-    return jwt.sign(payload, config.jwt.refreshSecret, options);
   }
 }
