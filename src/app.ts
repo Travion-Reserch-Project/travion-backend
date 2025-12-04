@@ -51,16 +51,7 @@ class App {
       })
     );
 
-    // Rate limiting for all API routes
-    this.app.use('/api/', apiLimiter);
-
-    // Stricter rate limiting for auth routes
-    this.app.use('/api/*/auth', authLimiter);
-
-    // Cookie parser
-    this.app.use(cookieParser());
-
-    // Body parser with size limits
+    // Body parser with size limits - MOVED BEFORE rate limiting
     this.app.use(express.json({ limit: bodyParserConfig.jsonLimit }));
     this.app.use(
       express.urlencoded({
@@ -68,6 +59,15 @@ class App {
         limit: bodyParserConfig.urlEncodedLimit,
       })
     );
+
+    // Rate limiting for all API routes
+    this.app.use('/api/', apiLimiter);
+
+    // Stricter rate limiting for auth routes - Fixed pattern
+    this.app.use('/api/v1/auth', authLimiter);
+
+    // Cookie parser
+    this.app.use(cookieParser());
 
     // Data sanitization against NoSQL injection
     this.app.use(mongoSanitize(mongoSanitizeConfig));

@@ -15,8 +15,8 @@ export class UserService {
     this.userRepository = new UserRepository();
   }
 
-  async getUserById(id: string): Promise<IUser> {
-    const user = await this.userRepository.findById(id);
+  async getUserById(userId: string): Promise<IUser> {
+    const user = await this.userRepository.findById(userId);
     if (!user) {
       throw new AppError('User not found', 404);
     }
@@ -41,18 +41,15 @@ export class UserService {
     };
   }
 
-  async updateUser(id: string, data: UpdateUserDTO): Promise<IUser> {
+  async updateUser(userId: string, data: UpdateUserDTO): Promise<IUser> {
     if (data.email) {
       const existingUser = await this.userRepository.findByEmail(data.email);
-      if (
-        existingUser &&
-        (existingUser as unknown as { _id: { toString: () => string } })._id.toString() !== id
-      ) {
+      if (existingUser && String(existingUser._id) !== userId) {
         throw new AppError('Email is already in use', 409);
       }
     }
 
-    const user = await this.userRepository.update(id, data);
+    const user = await this.userRepository.update(userId, data);
     if (!user) {
       throw new AppError('User not found', 404);
     }
@@ -60,23 +57,23 @@ export class UserService {
     return user;
   }
 
-  async deleteUser(id: string): Promise<void> {
-    const user = await this.userRepository.delete(id);
+  async deleteUser(userId: string): Promise<void> {
+    const user = await this.userRepository.delete(userId);
     if (!user) {
       throw new AppError('User not found', 404);
     }
   }
 
-  async deactivateUser(id: string): Promise<IUser> {
-    const user = await this.userRepository.update(id, { isActive: false });
+  async deactivateUser(userId: string): Promise<IUser> {
+    const user = await this.userRepository.update(userId, { isActive: false });
     if (!user) {
       throw new AppError('User not found', 404);
     }
     return user;
   }
 
-  async activateUser(id: string): Promise<IUser> {
-    const user = await this.userRepository.update(id, { isActive: true });
+  async activateUser(userId: string): Promise<IUser> {
+    const user = await this.userRepository.update(userId, { isActive: true });
     if (!user) {
       throw new AppError('User not found', 404);
     }

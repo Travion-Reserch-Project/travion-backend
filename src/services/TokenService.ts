@@ -54,12 +54,12 @@ export class TokenService {
     } as SignOptions);
   }
 
-  //Generate tokens for IUser object (for backward compatibility)
+  //Generate tokens for IUser object
   static generateTokensForUser(user: IUser): {
     token: string;
     refreshToken: string;
   } {
-    const userId = (user as unknown as { _id: string })._id;
+    const userId = String(user._id);
     const tokens = this.generateTokens(userId);
 
     return {

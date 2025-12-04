@@ -32,29 +32,29 @@ router.put('/profile', validate(updateUserSchema), userController.updateProfile 
 router.get('/', validateQuery(paginationSchema), userController.getAllUsers as any);
 
 /**
- * @route   GET /api/v1/users/:id
+ * @route   GET /api/v1/users/:userId
  * @desc    Get user by ID
  * @access  Private
  */
-router.get('/:id', validateParams(userIdSchema), userController.getUserById as any);
+router.get('/:userId', validateParams(userIdSchema), userController.getUserById as any);
 
 /**
- * @route   PUT /api/v1/users/:id
+ * @route   PUT /api/v1/users/:userId
  * @desc    Update user by ID
  * @access  Private
  */
 router.put(
-  '/:id',
+  '/:userId',
   validateParams(userIdSchema),
   validate(updateUserSchema),
   userController.updateUser as any
 );
 
 /**
- * @route   DELETE /api/v1/users/:id
+ * @route   DELETE /api/v1/users/:userId
  * @desc    Delete user by ID
  * @access  Private
  */
-router.delete('/:id', validateParams(userIdSchema), userController.deleteUser as any);
+router.delete('/:userId', validateParams(userIdSchema), userController.deleteUser as any);
 
 export default router;

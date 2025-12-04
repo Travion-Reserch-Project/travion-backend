@@ -5,7 +5,6 @@ import { TokenService } from '../services/TokenService';
 
 export interface AuthRequest extends Request {
   user?: {
-    id: string;
     userId: string;
     email?: string;
   };
@@ -38,7 +37,6 @@ export const authenticate = async (
 
     // Attach user to request
     req.user = {
-      id: decoded.userId, // Map userId to id for compatibility with existing code
       userId: decoded.userId,
       email: decoded.email,
     };
@@ -78,7 +76,6 @@ export const optionalAuth = async (
       };
 
       req.user = {
-        id: decoded.userId, // Map userId to id for compatibility
         userId: decoded.userId,
         email: decoded.email,
       };

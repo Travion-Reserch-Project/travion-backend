@@ -6,6 +6,7 @@ export interface IUser extends Document {
   password?: string;
   firstName: string;
   lastName: string;
+  userName: string;
   gender: 'Male' | 'Female' | 'Other';
   dob: Date;
   isActive: boolean;
@@ -48,6 +49,12 @@ const userSchema = new Schema<IUser>(
       type: String,
       required: [true, 'Last name is required'],
       trim: true,
+    },
+    userName: {
+      type: String,
+      unique: true,
+      trim: true,
+      sparse: true, // Allow null values for unique index
     },
     gender: {
       type: String,
@@ -102,6 +109,40 @@ const userSchema = new Schema<IUser>(
     },
   }
 );
+
+// Generate unique username if not provided
+userSchema.pre('save', async function (next) {
+  if (!this.userName) {
+    let isUnique = false;
+    let attempts = 0;
+    const maxAttempts = 10;
+
+    while (!isUnique && attempts < maxAttempts) {
+      // Generate username: first name + random 4-digit number
+      const randomNum = Math.floor(1000 + Math.random() * 9000);
+      const baseUsername = this.firstName.toLowerCase().replace(/[^a-z0-9]/g, '');
+      const generatedUsername = `${baseUsername}${randomNum}`;
+
+      // Check if username already exists
+      const existingUser = await (this.constructor as any).findOne({ userName: generatedUsername });
+
+      if (!existingUser) {
+        this.userName = generatedUsername;
+        isUnique = true;
+      }
+
+      attempts++;
+    }
+
+    // If we couldn't generate a unique username after max attempts, use timestamp
+    if (!isUnique) {
+      const timestamp = Date.now();
+      const baseUsername = this.firstName.toLowerCase().replace(/[^a-z0-9]/g, '');
+      this.userName = `${baseUsername}${timestamp}`;
+    }
+  }
+  next();
+});
 
 // Hash password before saving (only for local auth)
 userSchema.pre('save', async function (next) {

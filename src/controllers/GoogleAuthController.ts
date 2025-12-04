@@ -1,12 +1,13 @@
 import { Request, Response } from 'express';
-import { User } from '../models/User';
 import config from '../config/config';
 import { logger } from '../config/logger';
 import { OAuth2Client } from 'google-auth-library';
 import { TokenService } from '../services/TokenService';
+import { UserRepository } from '../repositories/UserRepository';
 
 export class GoogleAuthController {
   private client = new OAuth2Client(config.google?.clientId);
+  private userRepository = new UserRepository();
 
   //Get current authenticated user info
   public getProfile = async (req: any, res: Response): Promise<void> => {
@@ -20,7 +21,7 @@ export class GoogleAuthController {
         });
         return;
       }
-      const user = await User.findById(userId);
+      const user = await this.userRepository.findById(userId);
 
       if (!user) {
         res.status(404).json({
@@ -33,8 +34,9 @@ export class GoogleAuthController {
       res.status(200).json({
         success: true,
         user: {
-          id: String(user._id),
+          userId: String(user._id),
           email: user.email,
+          userName: user.userName,
           name: `${user.firstName} ${user.lastName}`.trim(),
           picture: user.profilePicture,
           verified: true,
@@ -97,7 +99,7 @@ export class GoogleAuthController {
 
       // Use frontend user data if available, fallback to token payload
       const userData = {
-        googleId,
+        googleId: frontendUser?.userId || googleId,
         email: frontendUser?.email || email,
         name: frontendUser?.name || `${firstName || ''} ${lastName || ''}`.trim(),
         firstName: firstName || frontendUser?.name?.split(' ')[0] || '',
@@ -107,42 +109,38 @@ export class GoogleAuthController {
       };
 
       // Check if user exists
-      let user = await User.findOne({
-        $or: [{ email: userData.email }, { googleId }],
-      });
+      let user = await this.userRepository.findByEmailOrGoogleId(userData.email, googleId);
 
       if (user) {
         // If user exists but doesn't have googleId, link the Google account
         if (!user.googleId && user.provider === 'local') {
-          user.googleId = googleId;
-          user.provider = 'google';
-          user.profilePicture = userData.picture || user.profilePicture;
-          user.firstName = userData.firstName || user.firstName;
-          user.lastName = userData.lastName || user.lastName;
-          await user.save();
+          user = await this.userRepository.update(String(user._id), {
+            googleId,
+            provider: 'google',
+            profilePicture: userData.picture || user.profilePicture,
+            firstName: userData.firstName || user.firstName,
+            lastName: userData.lastName || user.lastName,
+          });
           logger.info(`Linked Google account for existing user: ${userData.email}`);
         } else if (user.googleId === googleId) {
           // Update user info if changed
-          let updated = false;
+          const updateData: any = {};
           if (userData.picture && user.profilePicture !== userData.picture) {
-            user.profilePicture = userData.picture;
-            updated = true;
+            updateData.profilePicture = userData.picture;
           }
           if (userData.firstName && user.firstName !== userData.firstName) {
-            user.firstName = userData.firstName;
-            updated = true;
+            updateData.firstName = userData.firstName;
           }
           if (userData.lastName && user.lastName !== userData.lastName) {
-            user.lastName = userData.lastName;
-            updated = true;
+            updateData.lastName = userData.lastName;
           }
-          if (updated) {
-            await user.save();
+          if (Object.keys(updateData).length > 0) {
+            user = await this.userRepository.update(String(user._id), updateData);
           }
         }
       } else {
         // Create new user
-        user = new User({
+        user = await this.userRepository.create({
           googleId,
           email: userData.email,
           firstName: userData.firstName,
@@ -151,8 +149,16 @@ export class GoogleAuthController {
           provider: 'google',
         });
 
-        await user.save();
         logger.info(`Created new user from Google: ${userData.email}`);
+      }
+
+      // Ensure user is not null after all operations
+      if (!user) {
+        res.status(500).json({
+          success: false,
+          message: 'Failed to create or retrieve user',
+        });
+        return;
       }
 
       // Generate tokens
@@ -168,10 +174,12 @@ export class GoogleAuthController {
           expiresIn,
         },
         user: {
-          id: String(user._id),
+          userId: String(user._id),
           email: user.email,
+          userName: user.userName,
           name: userData.name,
           picture: user.profilePicture || userData.picture,
+          profileStatus: user.profileStatus,
           verified: userData.verified,
         },
       });
