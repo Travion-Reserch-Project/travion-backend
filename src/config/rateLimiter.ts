@@ -36,3 +36,21 @@ export const uploadLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
 });
+
+// Chat-specific rate limiter (20 requests per minute per user)
+export const chatLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 20,
+  message: 'Too many chat requests, please slow down.',
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// More restrictive limiter for feedback endpoints
+export const feedbackLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 10,
+  message: 'Too many feedback submissions, please try again later.',
+  standardHeaders: true,
+  legacyHeaders: false,
+});

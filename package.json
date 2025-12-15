@@ -13,6 +13,7 @@
     "format:check": "prettier --check \"src/**/*.ts\"",
     "type-check": "tsc --noEmit",
     "test": "echo \"No tests yet\" && exit 0",
+    "test:constraints": "ts-node src/tests/DatabaseConstraintTester.ts",
     "docker:build": "docker build -t travion-backend:local .",
     "docker:run": "docker run -p 3001:3001 -e INFISICAL_CLIENT_ID -e INFISICAL_CLIENT_SECRET -e INFISICAL_PROJECT_ID -e INFISICAL_ENVIRONMENT -e INFISICAL_SECRET_PATH -e INFISICAL_SITE_URL travion-backend:local",
     "docker:run:env": "docker run -p 3001:3001 --env-file .env travion-backend:local",
@@ -33,6 +34,8 @@
   "license": "ISC",
   "dependencies": {
     "@infisical/sdk": "^4.0.6",
+    "@types/uuid": "^10.0.0",
+    "axios": "^1.13.2",
     "bcryptjs": "^2.4.3",
     "compression": "^1.8.1",
     "cookie-parser": "^1.4.7",
@@ -42,6 +45,7 @@
     "express-async-errors": "^3.1.1",
     "express-mongo-sanitize": "^2.2.0",
     "express-rate-limit": "^8.2.0",
+    "express-validator": "^7.3.1",
     "google-auth-library": "^10.5.0",
     "helmet": "^7.1.0",
     "hpp": "^0.2.3",
@@ -49,6 +53,7 @@
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^8.0.3",
     "morgan": "^1.10.1",
+    "uuid": "^13.0.0",
     "winston": "^3.11.0",
     "winston-daily-rotate-file": "^4.7.1"
   },
