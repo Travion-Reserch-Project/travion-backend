@@ -3,6 +3,10 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 import authRoutes from './authRoutes';
 import userRoutes from './userRoutes';
+import aiEngineRoutes from './aiEngineRoutes';
+import userPreferencesRoutes from './userPreferencesRoutes';
+import savedTripRoutes from './savedTripRoutes';
+import chatSessionRoutes from './chatSessionRoutes';
 
 const router = Router();
 
@@ -27,5 +31,9 @@ router.get('/health', (_req, res) => {
 // API routes
 router.use('/auth', authRoutes);
 router.use('/users', userRoutes);
+router.use('/ai', aiEngineRoutes);
+router.use('/preferences', userPreferencesRoutes);
+router.use('/trips', savedTripRoutes);
+router.use('/chat', chatSessionRoutes);
 
 export default router;
