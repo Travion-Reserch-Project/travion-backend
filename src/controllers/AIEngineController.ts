@@ -450,4 +450,113 @@ export class AIEngineController {
       next(error);
     }
   };
+
+  // ============================================================================
+  // SIMPLE API ENDPOINTS
+  // ============================================================================
+
+  /**
+   * Get simple crowd prediction by location name
+   * POST /api/v1/ai/simple/crowd
+   */
+  getSimpleCrowdPrediction = async (
+    req: Request,
+    res: Response,
+    next: NextFunction
+  ): Promise<void> => {
+    try {
+      const { location_name } = req.body;
+
+      const result = await this.aiEngineService.getSimpleCrowdPrediction(location_name);
+
+      res.status(200).json({
+        success: true,
+        message: 'Simple crowd prediction retrieved',
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  /**
+   * Get simple golden hour by location name
+   * POST /api/v1/ai/simple/golden-hour
+   */
+  getSimpleGoldenHour = async (
+    req: Request,
+    res: Response,
+    next: NextFunction
+  ): Promise<void> => {
+    try {
+      const { location_name } = req.body;
+
+      const result = await this.aiEngineService.getSimpleGoldenHour(location_name);
+
+      res.status(200).json({
+        success: true,
+        message: 'Simple golden hour retrieved',
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  /**
+   * Get simple location description with preference scores
+   * POST /api/v1/ai/simple/description
+   */
+  getSimpleDescription = async (
+    req: Request,
+    res: Response,
+    next: NextFunction
+  ): Promise<void> => {
+    try {
+      const { location_name, preference } = req.body;
+
+      const result = await this.aiEngineService.getSimpleDescription(
+        location_name,
+        preference
+      );
+
+      res.status(200).json({
+        success: true,
+        message: 'Simple description retrieved',
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  /**
+   * Get simple location recommendations
+   * POST /api/v1/ai/simple/recommend
+   */
+  getSimpleRecommendations = async (
+    req: Request,
+    res: Response,
+    next: NextFunction
+  ): Promise<void> => {
+    try {
+      const { latitude, longitude, preferences, max_distance_km, top_k } = req.body;
+
+      const result = await this.aiEngineService.getSimpleRecommendations(
+        latitude,
+        longitude,
+        preferences || { history: 0.5, adventure: 0.5, nature: 0.5, relaxation: 0.5 },
+        max_distance_km || 50,
+        top_k || 5
+      );
+
+      res.status(200).json({
+        success: true,
+        message: 'Simple recommendations retrieved',
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
 }

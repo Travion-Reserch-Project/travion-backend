@@ -32,6 +32,11 @@ import {
   // Health
   HealthResponse,
   GraphResponse,
+  // Simple API types
+  SimpleCrowdPredictionResponse,
+  SimpleGoldenHourResponse,
+  SimpleDescriptionResponse,
+  SimpleRecommendationResponse,
   // Common types
   UserPreferenceScores,
 } from '../types/aiEngine';
@@ -41,7 +46,9 @@ export class AIEngineService {
    * Handle errors from AI Engine API calls
    */
   private handleError(error: unknown, operation: string): never {
-    logger.error(`AI Engine ${operation} error:`, error);
+    // Extract safe error info to avoid circular reference issues
+    const errorInfo = this.extractSafeErrorInfo(error);
+    logger.error(`AI Engine ${operation} error:`, errorInfo);
 
     if (error && typeof error === 'object') {
       const axiosError = error as {
@@ -62,7 +69,7 @@ export class AIEngineService {
       }
 
       if (axiosError.code === 'ETIMEDOUT' || axiosError.code === 'ECONNABORTED') {
-        throw new AppError('AI Engine request timed out', 504);
+        throw new AppError('AI Engine request timed out. The AI service may be overloaded.', 504);
       }
 
       throw new AppError(
@@ -74,6 +81,25 @@ export class AIEngineService {
     throw new AppError(`AI Engine ${operation} failed`, 500);
   }
 
+  /**
+   * Extract safe error info for logging (avoids circular references)
+   */
+  private extractSafeErrorInfo(error: unknown): Record<string, unknown> {
+    if (!error || typeof error !== 'object') {
+      return { message: String(error) };
+    }
+
+    const err = error as Record<string, unknown>;
+    return {
+      message: err.message,
+      code: err.code,
+      name: err.name,
+      status: (err.response as Record<string, unknown>)?.status,
+      statusText: (err.response as Record<string, unknown>)?.statusText,
+      detail: ((err.response as Record<string, unknown>)?.data as Record<string, unknown>)?.detail,
+    };
+  }
+
   // ============================================================================
   // CHAT API
   // ============================================================================
@@ -81,6 +107,7 @@ export class AIEngineService {
   /**
    * Send a message to the agentic chat system
    * POST /api/v1/chat
+   * Uses extended timeout (120s) for LLM operations
    */
   async chat(
     message: string,
@@ -97,9 +124,11 @@ export class AIEngineService {
         context,
       };
 
-      return await httpClient.post<ChatResponse>(
+      // Use longer timeout for chat (LLM operations can take time)
+      return await httpClient.postWithLongTimeout<ChatResponse>(
         aiEngineConfig.endpoints.chat,
-        request
+        request,
+        120000 // 2 minutes timeout
       );
     } catch (error) {
       this.handleError(error, 'chat');
@@ -472,6 +501,90 @@ export class AIEngineService {
       };
     } catch (error) {
       this.handleError(error, 'optimal visit time');
+    }
+  }
+
+  // ============================================================================
+  // SIMPLE API METHODS
+  // ============================================================================
+
+  /**
+   * Get simple crowd prediction by location name
+   * POST /api/v1/simple/crowd
+   */
+  async getSimpleCrowdPrediction(
+    locationName: string
+  ): Promise<SimpleCrowdPredictionResponse> {
+    try {
+      return await httpClient.post<SimpleCrowdPredictionResponse>(
+        aiEngineConfig.endpoints.simpleCrowd,
+        { location_name: locationName }
+      );
+    } catch (error) {
+      this.handleError(error, 'simple crowd prediction');
+    }
+  }
+
+  /**
+   * Get simple golden hour by location name
+   * POST /api/v1/simple/golden-hour
+   */
+  async getSimpleGoldenHour(
+    locationName: string
+  ): Promise<SimpleGoldenHourResponse> {
+    try {
+      return await httpClient.post<SimpleGoldenHourResponse>(
+        aiEngineConfig.endpoints.simpleGoldenHour,
+        { location_name: locationName }
+      );
+    } catch (error) {
+      this.handleError(error, 'simple golden hour');
+    }
+  }
+
+  /**
+   * Get simple location description with preference scores
+   * POST /api/v1/simple/description
+   */
+  async getSimpleDescription(
+    locationName: string,
+    preference: UserPreferenceScores
+  ): Promise<SimpleDescriptionResponse> {
+    try {
+      return await httpClient.postWithLongTimeout<SimpleDescriptionResponse>(
+        aiEngineConfig.endpoints.simpleDescription,
+        { location_name: locationName, preference },
+        60000 // 1 minute timeout for LLM operations
+      );
+    } catch (error) {
+      this.handleError(error, 'simple description');
+    }
+  }
+
+  /**
+   * Get simple location recommendations
+   * POST /api/v1/simple/recommend
+   */
+  async getSimpleRecommendations(
+    latitude: number,
+    longitude: number,
+    preferences: UserPreferenceScores,
+    maxDistanceKm: number = 50,
+    topK: number = 5
+  ): Promise<SimpleRecommendationResponse> {
+    try {
+      return await httpClient.post<SimpleRecommendationResponse>(
+        aiEngineConfig.endpoints.simpleRecommend,
+        {
+          latitude,
+          longitude,
+          preferences,
+          max_distance_km: maxDistanceKm,
+          top_k: topK,
+        }
+      );
+    } catch (error) {
+      this.handleError(error, 'simple recommendations');
     }
   }
 }

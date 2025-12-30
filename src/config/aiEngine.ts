@@ -27,6 +27,11 @@ export interface AIEngineConfig {
     // Health
     health: string;
     graph: string;
+    // Simple APIs (location name only)
+    simpleCrowd: string;
+    simpleGoldenHour: string;
+    simpleDescription: string;
+    simpleRecommend: string;
   };
 }
 
@@ -35,7 +40,7 @@ export interface AIEngineConfig {
  * Uses a factory function to ensure fresh values on each call
  */
 const getAIEngineConfig = (): AIEngineConfig => ({
-  baseUrl: process.env.AI_ENGINE_BASE_URL || 'http://localhost:8000',
+  baseUrl: process.env.AI_ENGINE_BASE_URL || 'http://localhost:8001',
   timeout: parseInt(process.env.AI_ENGINE_TIMEOUT || '30000', 10),
   retryAttempts: parseInt(process.env.AI_ENGINE_RETRY_ATTEMPTS || '3', 10),
   retryDelay: parseInt(process.env.AI_ENGINE_RETRY_DELAY || '1000', 10),
@@ -58,6 +63,11 @@ const getAIEngineConfig = (): AIEngineConfig => ({
     // Health
     health: '/api/v1/health',
     graph: '/api/v1/graph',
+    // Simple APIs (location name only)
+    simpleCrowd: '/api/v1/simple/crowd',
+    simpleGoldenHour: '/api/v1/simple/golden-hour',
+    simpleDescription: '/api/v1/simple/description',
+    simpleRecommend: '/api/v1/simple/recommend',
   },
 });
 

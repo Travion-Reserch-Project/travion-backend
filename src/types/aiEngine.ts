@@ -422,3 +422,140 @@ export interface AIEngineError {
   detail: string;
   status_code?: number;
 }
+
+// ============================================================================
+// SIMPLE API TYPES (location name only)
+// ============================================================================
+
+/**
+ * Simple Crowd Prediction Request
+ * POST /api/v1/simple/crowd
+ */
+export interface SimpleCrowdPredictionRequest {
+  location_name: string;          // Location name (auto-detects type)
+}
+
+/**
+ * Simple Crowd Prediction Response
+ */
+export interface SimpleCrowdPredictionResponse {
+  location_name: string;
+  location_type: string;
+  prediction_date: string;
+  prediction_time: string;
+  crowd_level: number;
+  crowd_percentage: number;
+  crowd_status: 'LOW' | 'MODERATE' | 'HIGH' | 'EXTREME';
+  recommendation: string;
+  optimal_times: OptimalTime[];
+  factors: {
+    is_weekend: boolean;
+    is_holiday: boolean;
+    is_poya: boolean;
+    weather_factor: number;
+  };
+}
+
+/**
+ * Simple Golden Hour Request
+ * POST /api/v1/simple/golden-hour
+ */
+export interface SimpleGoldenHourRequest {
+  location_name: string;          // Location name (auto-looks up coordinates)
+}
+
+/**
+ * Simple Golden Hour Response
+ */
+export interface SimpleGoldenHourResponse {
+  location_name: string;
+  coordinates: {
+    latitude: number;
+    longitude: number;
+  };
+  date: string;
+  timezone: string;
+  sunrise: string;
+  sunset: string;
+  morning_golden_hour: {
+    start: string;
+    end: string;
+    duration_minutes: number;
+  };
+  evening_golden_hour: {
+    start: string;
+    end: string;
+    duration_minutes: number;
+  };
+  current_light_quality?: string;
+  photography_recommendation: string;
+}
+
+/**
+ * Simple Description Request
+ * POST /api/v1/simple/description
+ */
+export interface SimpleDescriptionRequest {
+  location_name: string;
+  preference: UserPreferenceScores;
+}
+
+/**
+ * Simple Description Response
+ */
+export interface SimpleDescriptionResponse {
+  location_name: string;
+  preference_scores: UserPreferenceScores;
+  primary_focus: string;
+  description: string;
+  highlights: string[];
+  best_time_to_visit?: string;
+  tips: string[];
+  related_activities: string[];
+}
+
+/**
+ * Simple Recommendation Request
+ * POST /api/v1/simple/recommend
+ */
+export interface SimpleRecommendationRequest {
+  latitude: number;             // User's latitude (5.0-10.0 for Sri Lanka)
+  longitude: number;            // User's longitude (79.0-82.0 for Sri Lanka)
+  preferences?: UserPreferenceScores;  // User preference scores
+  max_distance_km?: number;     // Max distance in km (default: 50)
+  top_k?: number;               // Number of results (default: 5)
+}
+
+/**
+ * Simple Recommendation Location
+ */
+export interface SimpleRecommendationLocation {
+  rank: number;
+  name: string;
+  latitude: number;
+  longitude: number;
+  distance_km: number;
+  similarity_score: number;
+  preference_scores: {
+    history: number;
+    adventure: number;
+    nature: number;
+    relaxation: number;
+  };
+  is_outdoor: boolean;
+  description?: string;
+}
+
+/**
+ * Simple Recommendation Response
+ */
+export interface SimpleRecommendationResponse {
+  success: boolean;
+  user_location: {
+    lat: number;
+    lng: number;
+  };
+  max_distance_km: number;
+  total_found: number;
+  recommendations: SimpleRecommendationLocation[];
+}

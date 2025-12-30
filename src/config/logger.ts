@@ -13,6 +13,27 @@ const logFormat = winston.format.combine(
   winston.format.json()
 );
 
+/**
+ * Safe JSON stringify that handles circular references
+ */
+const safeStringify = (obj: unknown): string => {
+  const seen = new WeakSet();
+  return JSON.stringify(obj, (_key, value) => {
+    // Handle circular references
+    if (typeof value === 'object' && value !== null) {
+      if (seen.has(value)) {
+        return '[Circular]';
+      }
+      seen.add(value);
+    }
+    // Remove potentially large or sensitive data
+    if (_key === 'socket' || _key === 'request' || _key === 'response' || _key === '_httpMessage') {
+      return '[Removed]';
+    }
+    return value;
+  });
+};
+
 // Console format for development
 const consoleFormat = winston.format.combine(
   winston.format.colorize(),
@@ -20,7 +41,11 @@ const consoleFormat = winston.format.combine(
   winston.format.printf(({ timestamp, level, message, ...meta }) => {
     let msg = `${timestamp} [${level}]: ${message}`;
     if (Object.keys(meta).length > 0) {
-      msg += ` ${JSON.stringify(meta)}`;
+      try {
+        msg += ` ${safeStringify(meta)}`;
+      } catch {
+        msg += ' [Unable to stringify metadata]';
+      }
     }
     return msg;
   })

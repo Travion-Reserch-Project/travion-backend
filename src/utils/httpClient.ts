@@ -104,6 +104,29 @@ class HttpClient {
   }
 
   /**
+   * Check if error is a timeout error
+   */
+  private isTimeoutError(error: AxiosError): boolean {
+    return error.code === 'ECONNABORTED' ||
+           error.code === 'ETIMEDOUT' ||
+           error.message?.includes('timeout');
+  }
+
+  /**
+   * Extract safe error details for logging (avoid circular refs)
+   */
+  private extractErrorDetails(error: AxiosError): Record<string, unknown> {
+    return {
+      message: error.message,
+      code: error.code,
+      status: error.response?.status,
+      statusText: error.response?.statusText,
+      url: error.config?.url,
+      method: error.config?.method,
+    };
+  }
+
+  /**
    * Execute request with retry logic
    */
   private async executeWithRetry<T>(
@@ -118,8 +141,14 @@ class HttpClient {
       } catch (error) {
         lastError = error as AxiosError;
 
-        // Don't retry on client errors (4xx) except for 429 (rate limit)
         if (axios.isAxiosError(error)) {
+          // Don't retry on timeout errors - they'll likely timeout again
+          if (this.isTimeoutError(error)) {
+            logger.error('AI Engine request timed out (no retry)', this.extractErrorDetails(error));
+            throw error;
+          }
+
+          // Don't retry on client errors (4xx) except for 429 (rate limit)
           const status = error.response?.status;
           if (status && status >= 400 && status < 500 && status !== 429) {
             throw error;
@@ -156,6 +185,21 @@ class HttpClient {
   async post<T>(url: string, data?: unknown, config?: AxiosRequestConfig): Promise<T> {
     const response = await this.executeWithRetry<T>(() =>
       this.client.post<T>(url, data, config)
+    );
+    return response.data;
+  }
+
+  /**
+   * Make a POST request with extended timeout (for LLM operations)
+   * Default: 120 seconds (2 minutes)
+   */
+  async postWithLongTimeout<T>(
+    url: string,
+    data?: unknown,
+    timeoutMs: number = 120000
+  ): Promise<T> {
+    const response = await this.executeWithRetry<T>(() =>
+      this.client.post<T>(url, data, { timeout: timeoutMs })
     );
     return response.data;
   }

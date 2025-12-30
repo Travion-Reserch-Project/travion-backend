@@ -17,6 +17,10 @@ import {
   goldenHourSchema,
   goldenHourByLocationSchema,
   sunPositionSchema,
+  simpleCrowdSchema,
+  simpleGoldenHourSchema,
+  simpleDescriptionSchema,
+  simpleRecommendSchema,
 } from '../validators/aiEngineValidator';
 
 const router = Router();
@@ -221,6 +225,54 @@ router.get(
   '/optimal-visit-time/:location',
   authenticate as any,
   aiEngineController.getOptimalVisitTime as any
+);
+
+// ============================================================================
+// SIMPLE API ROUTES (Public - no auth required)
+// ============================================================================
+
+/**
+ * @route   POST /api/v1/ai/simple/crowd
+ * @desc    Get simple crowd prediction by location name
+ * @access  Public
+ */
+router.post(
+  '/simple/crowd',
+  validate(simpleCrowdSchema),
+  aiEngineController.getSimpleCrowdPrediction as any
+);
+
+/**
+ * @route   POST /api/v1/ai/simple/golden-hour
+ * @desc    Get simple golden hour by location name
+ * @access  Public
+ */
+router.post(
+  '/simple/golden-hour',
+  validate(simpleGoldenHourSchema),
+  aiEngineController.getSimpleGoldenHour as any
+);
+
+/**
+ * @route   POST /api/v1/ai/simple/description
+ * @desc    Get simple location description with preference scores
+ * @access  Public
+ */
+router.post(
+  '/simple/description',
+  validate(simpleDescriptionSchema),
+  aiEngineController.getSimpleDescription as any
+);
+
+/**
+ * @route   POST /api/v1/ai/simple/recommend
+ * @desc    Get simple location recommendations based on user location and preferences
+ * @access  Public
+ */
+router.post(
+  '/simple/recommend',
+  validate(simpleRecommendSchema),
+  aiEngineController.getSimpleRecommendations as any
 );
 
 export default router;

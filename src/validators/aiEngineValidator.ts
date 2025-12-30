@@ -270,3 +270,111 @@ export const optimalVisitTimeSchema = Joi.object({
   location_type: Joi.string().required(),
   target_date: dateStringSchema.required(),
 });
+
+// ============================================================================
+// SIMPLE API SCHEMAS
+// ============================================================================
+
+/**
+ * Simple Crowd prediction request validation
+ * POST /api/v1/ai/simple/crowd
+ */
+export const simpleCrowdSchema = Joi.object({
+  location_name: Joi.string().min(2).max(100).required().messages({
+    'string.min': 'Location name must be at least 2 characters',
+    'string.max': 'Location name cannot exceed 100 characters',
+    'any.required': 'Location name is required',
+  }),
+});
+
+/**
+ * Simple Golden Hour request validation
+ * POST /api/v1/ai/simple/golden-hour
+ */
+export const simpleGoldenHourSchema = Joi.object({
+  location_name: Joi.string().min(2).max(100).required().messages({
+    'string.min': 'Location name must be at least 2 characters',
+    'string.max': 'Location name cannot exceed 100 characters',
+    'any.required': 'Location name is required',
+  }),
+});
+
+/**
+ * Simple Description request validation
+ * POST /api/v1/ai/simple/description
+ */
+export const simpleDescriptionSchema = Joi.object({
+  location_name: Joi.string().min(2).max(100).required().messages({
+    'string.min': 'Location name must be at least 2 characters',
+    'string.max': 'Location name cannot exceed 100 characters',
+    'any.required': 'Location name is required',
+  }),
+  preference: Joi.object({
+    history: Joi.number().min(0).max(1).default(0.5).messages({
+      'number.min': 'History score must be between 0 and 1',
+      'number.max': 'History score must be between 0 and 1',
+    }),
+    adventure: Joi.number().min(0).max(1).default(0.5).messages({
+      'number.min': 'Adventure score must be between 0 and 1',
+      'number.max': 'Adventure score must be between 0 and 1',
+    }),
+    nature: Joi.number().min(0).max(1).default(0.5).messages({
+      'number.min': 'Nature score must be between 0 and 1',
+      'number.max': 'Nature score must be between 0 and 1',
+    }),
+    relaxation: Joi.number().min(0).max(1).default(0.5).messages({
+      'number.min': 'Relaxation score must be between 0 and 1',
+      'number.max': 'Relaxation score must be between 0 and 1',
+    }),
+  }).required().messages({
+    'any.required': 'Preference scores are required',
+  }),
+});
+
+/**
+ * Simple Recommendation request validation
+ * POST /api/v1/ai/simple/recommend
+ */
+export const simpleRecommendSchema = Joi.object({
+  latitude: Joi.number().min(5.0).max(10.0).required().messages({
+    'number.min': 'Latitude must be at least 5.0 (Sri Lanka bounds)',
+    'number.max': 'Latitude must be at most 10.0 (Sri Lanka bounds)',
+    'any.required': 'Latitude is required',
+  }),
+  longitude: Joi.number().min(79.0).max(82.0).required().messages({
+    'number.min': 'Longitude must be at least 79.0 (Sri Lanka bounds)',
+    'number.max': 'Longitude must be at most 82.0 (Sri Lanka bounds)',
+    'any.required': 'Longitude is required',
+  }),
+  preferences: Joi.object({
+    history: Joi.number().min(0).max(1).default(0.5).messages({
+      'number.min': 'History score must be between 0 and 1',
+      'number.max': 'History score must be between 0 and 1',
+    }),
+    adventure: Joi.number().min(0).max(1).default(0.5).messages({
+      'number.min': 'Adventure score must be between 0 and 1',
+      'number.max': 'Adventure score must be between 0 and 1',
+    }),
+    nature: Joi.number().min(0).max(1).default(0.5).messages({
+      'number.min': 'Nature score must be between 0 and 1',
+      'number.max': 'Nature score must be between 0 and 1',
+    }),
+    relaxation: Joi.number().min(0).max(1).default(0.5).messages({
+      'number.min': 'Relaxation score must be between 0 and 1',
+      'number.max': 'Relaxation score must be between 0 and 1',
+    }),
+  }).default({
+    history: 0.5,
+    adventure: 0.5,
+    nature: 0.5,
+    relaxation: 0.5,
+  }),
+  max_distance_km: Joi.number().min(1).max(500).default(50).messages({
+    'number.min': 'Max distance must be at least 1 km',
+    'number.max': 'Max distance cannot exceed 500 km',
+  }),
+  top_k: Joi.number().integer().min(1).max(20).default(5).messages({
+    'number.min': 'Top K must be at least 1',
+    'number.max': 'Top K cannot exceed 20',
+  }),
+});
