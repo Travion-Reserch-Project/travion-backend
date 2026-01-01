@@ -3,6 +3,8 @@ import { IChatQuery } from '../models/ChatQuery';
 import { ChatRepository } from '../repositories/ChatRepository';
 import { ChatPreferencesRepository } from '../repositories/ChatPreferencesRepository';
 import { MLService, MLServiceRequest } from './MLService';
+import { LLMService, TripExtraction } from './LLMService';
+import { RecommendationService, RecommendationResponse } from './RecommendationService';
 import { v4 as uuidv4 } from 'uuid';
 import mongoose from 'mongoose';
 
@@ -48,15 +50,43 @@ export interface SessionFeedbackRequest {
   satisfactionScore: number; // 1-5
 }
 
+export interface TravelRecommendationRequest {
+  message: string;
+  origin?: string;
+  destination?: string;
+  departureDate?: string;
+  departureTime?: string;
+}
+
+export interface TravelRecommendationResponse {
+  success: boolean;
+  data?: {
+    status: 'ready' | 'needs_clarification';
+    extracted: TripExtraction;
+    recommendation?: RecommendationResponse;
+    missingFields?: string[];
+    clarificationPrompt?: string;
+    nextQuestion?: string;
+    pendingFields?: string[];
+  };
+  error?: {
+    message: string;
+    code: string;
+  };
+}
+
 export class ChatService {
   private mlService: MLService;
   private chatRepository: ChatRepository;
   private chatPreferencesRepository: ChatPreferencesRepository;
+  private llmService?: LLMService;
+  private recommendationService: RecommendationService;
 
   constructor() {
     this.mlService = new MLService();
     this.chatRepository = new ChatRepository();
     this.chatPreferencesRepository = new ChatPreferencesRepository();
+    this.recommendationService = new RecommendationService();
   }
 
   // Process a chat query
@@ -393,6 +423,72 @@ export class ChatService {
         totalQueries: newTotalQueries,
         avgResponseTime: newAvgResponseTime,
       });
+    }
+  }
+
+  async getTravelRecommendation(
+    request: TravelRecommendationRequest
+  ): Promise<TravelRecommendationResponse> {
+    try {
+      if (!this.llmService) {
+        this.llmService = new LLMService();
+      }
+
+      const extraction = await this.llmService.extractTripDetails(request.message, {
+        origin: request.origin,
+        destination: request.destination,
+        departureDate: request.departureDate,
+        departureTime: request.departureTime,
+      });
+
+      if (extraction.missingFields.length > 0) {
+        const firstMissing = extraction.missingFields[0];
+        const followUpByField: Record<string, string> = {
+          origin: 'What city or station are you starting from?',
+          destination: 'Where do you want to go?',
+          departureDate: 'What date do you want to travel? (YYYY-MM-DD)',
+          departureTime: 'What time do you want to travel? (HH:MM, 24h)',
+        };
+
+        const clarificationPrompt = `I need ${extraction.missingFields.join(
+          ', '
+        )}. Please provide them to continue.`;
+        const nextQuestion = followUpByField[firstMissing] || clarificationPrompt;
+
+        return {
+          success: true,
+          data: {
+            status: 'needs_clarification',
+            extracted: extraction.extracted,
+            missingFields: extraction.missingFields,
+            clarificationPrompt,
+            nextQuestion,
+            pendingFields: extraction.missingFields,
+          },
+        };
+      }
+
+      const recommendation = await this.recommendationService.getRecommendations(
+        extraction.extracted
+      );
+
+      return {
+        success: true,
+        data: {
+          status: 'ready',
+          extracted: extraction.extracted,
+          recommendation,
+        },
+      };
+    } catch (error: any) {
+      const message = error?.message || 'Failed to get recommendation';
+      return {
+        success: false,
+        error: {
+          message,
+          code: 'RECOMMENDATION_ERROR',
+        },
+      };
     }
   }
 }

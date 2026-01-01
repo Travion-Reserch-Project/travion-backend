@@ -88,6 +88,36 @@ export const analyticsValidator = [
   query('endDate').optional().isISO8601().withMessage('End date must be a valid ISO 8601 date'),
 ];
 
+export const travelRecommendationValidator = [
+  body('message')
+    .isString()
+    .notEmpty()
+    .isLength({ min: 1, max: 2000 })
+    .withMessage('Message must be provided'),
+
+  body('origin')
+    .optional()
+    .isString()
+    .isLength({ max: 200 })
+    .withMessage('Origin must be a string'),
+
+  body('destination')
+    .optional()
+    .isString()
+    .isLength({ max: 200 })
+    .withMessage('Destination must be a string'),
+
+  body('departureDate')
+    .optional()
+    .isISO8601()
+    .withMessage('Departure date must be in ISO 8601 format'),
+
+  body('departureTime')
+    .optional()
+    .matches(/^([01]\d|2[0-3]):[0-5]\d$/)
+    .withMessage('Departure time must be HH:MM in 24-hour format'),
+];
+
 export const updateChatPreferencesValidator = [
   body('language')
     .optional()

@@ -17,7 +17,6 @@ export class ChatController {
   // Process a chat query
   processQuery = async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
     try {
-      // Check for validation errors
       const errors = validationResult(req);
       if (!errors.isEmpty()) {
         res.status(400).json({
@@ -52,6 +51,53 @@ export class ChatController {
       });
 
       res.status(200).json(result);
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  // Get structured travel recommendation via LLM extraction
+  getTravelRecommendation = async (
+    req: AuthRequest,
+    res: Response,
+    next: NextFunction
+  ): Promise<void> => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        res.status(400).json({
+          success: false,
+          error: {
+            message: 'Invalid request data',
+            details: errors.array(),
+          },
+        });
+        return;
+      }
+
+      const userId = req.user?.userId;
+      if (!userId) {
+        res.status(401).json({
+          success: false,
+          error: {
+            message: 'Authentication required',
+            code: 'AUTH_REQUIRED',
+          },
+        });
+        return;
+      }
+
+      const { message, origin, destination, departureDate, departureTime } = req.body;
+
+      const result = await this.chatService.getTravelRecommendation({
+        message,
+        origin,
+        destination,
+        departureDate,
+        departureTime,
+      });
+
+      res.status(result.success ? 200 : 400).json(result);
     } catch (error) {
       next(error);
     }

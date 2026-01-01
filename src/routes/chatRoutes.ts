@@ -9,6 +9,7 @@ import {
   endSessionValidator,
   chatHistoryValidator,
   analyticsValidator,
+  travelRecommendationValidator,
 } from '../validators/chatValidator';
 
 const router = Router();
@@ -19,6 +20,14 @@ router.use(authenticate as any);
 
 // Main chat query endpoint
 router.post('/query', chatLimiter, chatQueryValidator, chatController.processQuery);
+
+// Travel recommendation via LLM extraction
+router.post(
+  '/recommend',
+  chatLimiter,
+  travelRecommendationValidator,
+  chatController.getTravelRecommendation
+);
 
 // Submit feedback for a specific query
 router.post('/feedback', feedbackLimiter, chatFeedbackValidator, chatController.submitFeedback);
