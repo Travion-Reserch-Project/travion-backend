@@ -84,6 +84,8 @@ const userSchema = new Schema<IUser>(
     googleId: {
       type: String,
       sparse: true,
+      unique: true,
+      index: { unique: true, sparse: true },
     },
     profilePicture: {
       type: String,
@@ -166,5 +168,20 @@ userSchema.methods.comparePassword = async function (candidatePassword: string):
   }
   return bcrypt.compare(candidatePassword, this.password);
 };
+
+// Primary Key and Unique Constraints (remove explicit indexes where schema already defines unique: true)
+// Note: Removed duplicate indexes for email, userName, and googleId as they're already unique in schema
+
+// Additional indexes for performance
+userSchema.index({ provider: 1 }); // For authentication queries
+userSchema.index({ isActive: 1 }); // For active user queries
+userSchema.index({ profileStatus: 1 }); // For profile completion queries
+userSchema.index({ createdAt: -1 }); // For chronological queries
+userSchema.index({ lastLogin: -1 }, { sparse: true }); // For activity tracking
+userSchema.index({ firstName: 1, lastName: 1 }); // For name-based searches
+
+// Compound indexes for common queries
+userSchema.index({ provider: 1, isActive: 1 });
+userSchema.index({ email: 1, provider: 1 });
 
 export const User = mongoose.model<IUser>('User', userSchema);

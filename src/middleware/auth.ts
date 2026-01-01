@@ -86,3 +86,6 @@ export const optionalAuth = async (
     next();
   }
 };
+
+// Export auth as an alias for authenticate
+export const auth = authenticate;

@@ -1,5 +1,6 @@
 import { UserRepository } from '../repositories/UserRepository';
 import { IUser } from '../models/User';
+import { ChatPreferencesRepository } from '../repositories/ChatPreferencesRepository';
 import { AppError } from '../middleware/errorHandler';
 
 export interface UpdateUserDTO {
@@ -8,11 +9,18 @@ export interface UpdateUserDTO {
   email?: string;
 }
 
+export interface UpdateChatPreferencesDTO {
+  language?: string;
+  enableNotifications?: boolean;
+}
+
 export class UserService {
   private userRepository: UserRepository;
+  private chatPreferencesRepository: ChatPreferencesRepository;
 
   constructor() {
     this.userRepository = new UserRepository();
+    this.chatPreferencesRepository = new ChatPreferencesRepository();
   }
 
   async getUserById(userId: string): Promise<IUser> {
@@ -77,6 +85,43 @@ export class UserService {
     if (!user) {
       throw new AppError('User not found', 404);
     }
+    return user;
+  }
+
+  async updateChatPreferences(
+    userId: string,
+    preferences: UpdateChatPreferencesDTO
+  ): Promise<IUser> {
+    // Verify user exists
+    const user = await this.userRepository.findById(userId);
+    if (!user) {
+      throw new AppError('User not found', 404);
+    }
+
+    // Find or create ChatPreferences for this user
+    const existingPrefs = await this.chatPreferencesRepository.findByUserId(userId);
+
+    if (!existingPrefs) {
+      // Create new ChatPreferences if it doesn't exist
+      await this.chatPreferencesRepository.create({
+        userId: user._id as any,
+        language: preferences.language || 'en',
+        enableNotifications:
+          preferences.enableNotifications !== undefined ? preferences.enableNotifications : true,
+      });
+    } else {
+      // Update existing preferences
+      const updateData: any = {};
+      if (preferences.language !== undefined) {
+        updateData.language = preferences.language;
+      }
+      if (preferences.enableNotifications !== undefined) {
+        updateData.enableNotifications = preferences.enableNotifications;
+      }
+
+      await this.chatPreferencesRepository.update(userId, updateData);
+    }
+
     return user;
   }
 }
