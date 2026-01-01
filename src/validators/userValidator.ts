@@ -9,7 +9,7 @@ export const updateUserSchema = Joi.object({
 });
 
 export const userIdSchema = Joi.object({
-  id: Joi.string().hex().length(24).required().messages({
+  userId: Joi.string().hex().length(24).required().messages({
     'string.hex': 'Invalid user ID format',
     'string.length': 'Invalid user ID format',
     'any.required': 'User ID is required',

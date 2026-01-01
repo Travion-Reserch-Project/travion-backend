@@ -23,6 +23,7 @@ async function startServer() {
   } catch (error) {
     logger.error('❌ Failed to load secrets from Infisical, falling back to .env:', error);
     logger.info('📝 Using local .env file as fallback');
+
     const app = new App();
     app.start();
   }

@@ -3,10 +3,20 @@ import bcrypt from 'bcryptjs';
 
 export interface IUser extends Document {
   email: string;
-  password: string;
+  password?: string;
   firstName: string;
   lastName: string;
+  userName: string;
+  gender: 'Male' | 'Female' | 'Other';
+  dob: Date;
   isActive: boolean;
+  profileStatus: 'Incomplete' | 'Complete';
+  country?: string;
+  preferredLanguage?: string;
+  googleId?: string;
+  profilePicture?: string;
+  provider: 'local' | 'google';
+  lastLogin?: Date;
   createdAt: Date;
   updatedAt: Date;
   comparePassword(candidatePassword: string): Promise<boolean>;
@@ -24,7 +34,9 @@ const userSchema = new Schema<IUser>(
     },
     password: {
       type: String,
-      required: [true, 'Password is required'],
+      required: function (this: IUser) {
+        return this.provider === 'local';
+      },
       minlength: [6, 'Password must be at least 6 characters long'],
       select: false,
     },
@@ -38,9 +50,54 @@ const userSchema = new Schema<IUser>(
       required: [true, 'Last name is required'],
       trim: true,
     },
+    userName: {
+      type: String,
+      unique: true,
+      trim: true,
+      sparse: true, // Allow null values for unique index
+    },
+    gender: {
+      type: String,
+      enum: ['Male', 'Female', 'Other'],
+      required: [false, 'Gender is not required'],
+    },
+    dob: {
+      type: Date,
+    },
     isActive: {
       type: Boolean,
       default: true,
+    },
+    profileStatus: {
+      type: String,
+      enum: ['Incomplete', 'Complete'],
+      default: 'Incomplete',
+    },
+    country: {
+      type: String,
+      trim: true,
+    },
+    preferredLanguage: {
+      type: String,
+      trim: true,
+    },
+    googleId: {
+      type: String,
+      sparse: true,
+      unique: true,
+      index: { unique: true, sparse: true },
+    },
+    profilePicture: {
+      type: String,
+    },
+    provider: {
+      type: String,
+      enum: ['local', 'google'],
+      default: 'local',
+      required: true,
+    },
+    lastLogin: {
+      type: Date,
     },
   },
   {
@@ -55,9 +112,43 @@ const userSchema = new Schema<IUser>(
   }
 );
 
-// Hash password before saving
+// Generate unique username if not provided
 userSchema.pre('save', async function (next) {
-  if (!this.isModified('password')) {
+  if (!this.userName) {
+    let isUnique = false;
+    let attempts = 0;
+    const maxAttempts = 10;
+
+    while (!isUnique && attempts < maxAttempts) {
+      // Generate username: first name + random 4-digit number
+      const randomNum = Math.floor(1000 + Math.random() * 9000);
+      const baseUsername = this.firstName.toLowerCase().replace(/[^a-z0-9]/g, '');
+      const generatedUsername = `${baseUsername}${randomNum}`;
+
+      // Check if username already exists
+      const existingUser = await (this.constructor as any).findOne({ userName: generatedUsername });
+
+      if (!existingUser) {
+        this.userName = generatedUsername;
+        isUnique = true;
+      }
+
+      attempts++;
+    }
+
+    // If we couldn't generate a unique username after max attempts, use timestamp
+    if (!isUnique) {
+      const timestamp = Date.now();
+      const baseUsername = this.firstName.toLowerCase().replace(/[^a-z0-9]/g, '');
+      this.userName = `${baseUsername}${timestamp}`;
+    }
+  }
+  next();
+});
+
+// Hash password before saving (only for local auth)
+userSchema.pre('save', async function (next) {
+  if (!this.isModified('password') || this.provider !== 'local' || !this.password) {
     return next();
   }
 
@@ -70,9 +161,27 @@ userSchema.pre('save', async function (next) {
   }
 });
 
-// Method to compare passwords
+// Method to compare passwords (only for local auth)
 userSchema.methods.comparePassword = async function (candidatePassword: string): Promise<boolean> {
+  if (this.provider !== 'local' || !this.password) {
+    return false;
+  }
   return bcrypt.compare(candidatePassword, this.password);
 };
+
+// Primary Key and Unique Constraints (remove explicit indexes where schema already defines unique: true)
+// Note: Removed duplicate indexes for email, userName, and googleId as they're already unique in schema
+
+// Additional indexes for performance
+userSchema.index({ provider: 1 }); // For authentication queries
+userSchema.index({ isActive: 1 }); // For active user queries
+userSchema.index({ profileStatus: 1 }); // For profile completion queries
+userSchema.index({ createdAt: -1 }); // For chronological queries
+userSchema.index({ lastLogin: -1 }, { sparse: true }); // For activity tracking
+userSchema.index({ firstName: 1, lastName: 1 }); // For name-based searches
+
+// Compound indexes for common queries
+userSchema.index({ provider: 1, isActive: 1 });
+userSchema.index({ email: 1, provider: 1 });
 
 export const User = mongoose.model<IUser>('User', userSchema);

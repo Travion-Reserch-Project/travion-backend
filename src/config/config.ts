@@ -10,6 +10,7 @@ interface Config {
   apiVersion: string;
   database: {
     uri: string;
+    name: string;
   };
   jwt: {
     secret: string;
@@ -30,6 +31,10 @@ interface Config {
     sameSite: 'strict' | 'lax' | 'none';
     maxAge: number;
   };
+  google: {
+    clientId: string;
+    clientSecret: string;
+  };
 }
 
 //Get configuration dynamically from process.env
@@ -39,6 +44,7 @@ const getConfig = (): Config => ({
   apiVersion: process.env.API_VERSION || 'v1',
   database: {
     uri: process.env.MONGODB_URI || 'mongodb://localhost:27017/travion-backend',
+    name: process.env.DATABASE_NAME || 'travion-backend',
   },
   jwt: {
     secret: process.env.JWT_SECRET || 'your-secret-key',
@@ -57,7 +63,11 @@ const getConfig = (): Config => ({
     secure: process.env.NODE_ENV === 'production',
     httpOnly: true,
     sameSite: process.env.NODE_ENV === 'production' ? 'strict' : 'lax',
-    maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days in milliseconds
+    maxAge: 7 * 24 * 60 * 60 * 1000,
+  },
+  google: {
+    clientId: process.env.GOOGLE_CLIENT_ID || '',
+    clientSecret: process.env.GOOGLE_CLIENT_SECRET || '',
   },
 });
 

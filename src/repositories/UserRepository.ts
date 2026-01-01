@@ -6,8 +6,8 @@ export class UserRepository {
     return await user.save();
   }
 
-  async findById(id: string): Promise<IUser | null> {
-    return await User.findById(id);
+  async findById(userId: string): Promise<IUser | null> {
+    return await User.findById(userId);
   }
 
   async findByEmail(email: string): Promise<IUser | null> {
@@ -18,15 +18,15 @@ export class UserRepository {
     return await User.find(filter).limit(limit).skip(skip).sort({ createdAt: -1 });
   }
 
-  async update(id: string, userData: Partial<IUser>): Promise<IUser | null> {
-    return await User.findByIdAndUpdate(id, userData, {
+  async update(userId: string, userData: Partial<IUser>): Promise<IUser | null> {
+    return await User.findByIdAndUpdate(userId, userData, {
       new: true,
       runValidators: true,
     });
   }
 
-  async delete(id: string): Promise<IUser | null> {
-    return await User.findByIdAndDelete(id);
+  async delete(userId: string): Promise<IUser | null> {
+    return await User.findByIdAndDelete(userId);
   }
 
   async count(filter: Record<string, unknown> = {}): Promise<number> {
@@ -36,5 +36,11 @@ export class UserRepository {
   async exists(email: string): Promise<boolean> {
     const user = await User.findOne({ email });
     return !!user;
+  }
+
+  async findByEmailOrGoogleId(email: string, googleId: string): Promise<IUser | null> {
+    return await User.findOne({
+      $or: [{ email }, { googleId }],
+    });
   }
 }
