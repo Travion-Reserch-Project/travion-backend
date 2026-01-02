@@ -514,4 +514,101 @@ export class ChatSessionController {
       next(error);
     }
   };
+
+  // ============================================================================
+  // LOCATION-SPECIFIC CHAT OPERATIONS
+  // ============================================================================
+
+  /**
+   * Location-specific chat
+   * POST /chat/location
+   */
+  locationChat = async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      if (!req.user?.userId) {
+        throw new AppError('Unauthorized', 401);
+      }
+
+      const { locationName, message } = req.body;
+      if (!locationName || locationName.trim().length === 0) {
+        throw new AppError('Location name is required', 400);
+      }
+      if (!message || message.trim().length === 0) {
+        throw new AppError('Message is required', 400);
+      }
+
+      const result = await this.chatService.sendLocationMessage(
+        req.user.userId,
+        locationName.trim(),
+        message
+      );
+
+      res.status(200).json({
+        success: true,
+        data: {
+          sessionId: result.session.sessionId,
+          locationName: result.session.context.locationName,
+          response: result.response,
+          intent: result.intent,
+          metadata: result.metadata,
+          messageCount: result.session.messageCount,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  /**
+   * Get location session
+   * GET /chat/location/:locationName
+   */
+  getLocationSession = async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      if (!req.user?.userId) {
+        throw new AppError('Unauthorized', 401);
+      }
+
+      const locationName = decodeURIComponent(req.params.locationName);
+      const session = await this.chatService.getLocationSession(
+        req.user.userId,
+        locationName
+      );
+
+      res.status(200).json({
+        success: true,
+        data: {
+          session,
+          hasSession: !!session,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  /**
+   * Clear messages from a session
+   * DELETE /chat/sessions/:sessionId/messages
+   */
+  clearMessages = async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      if (!req.user?.userId) {
+        throw new AppError('Unauthorized', 401);
+      }
+
+      const session = await this.chatService.clearMessages(
+        req.params.sessionId,
+        req.user.userId
+      );
+
+      res.status(200).json({
+        success: true,
+        message: 'Messages cleared',
+        data: { session },
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
 }

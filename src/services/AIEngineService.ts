@@ -12,6 +12,7 @@ import {
   // Chat
   ChatRequest,
   ChatResponse,
+  LocationChatRequest,
   // Recommendations
   RecommendationRequest,
   RecommendationResponse,
@@ -132,6 +133,36 @@ export class AIEngineService {
       );
     } catch (error) {
       this.handleError(error, 'chat');
+    }
+  }
+
+  /**
+   * Send a location-specific message to the agentic chat system
+   * POST /api/v1/chat/location
+   * Uses extended timeout (120s) for LLM operations
+   */
+  async locationChat(
+    message: string,
+    locationName: string,
+    threadId?: string,
+    userPreferences?: UserPreferenceScores
+  ): Promise<ChatResponse> {
+    try {
+      const request: LocationChatRequest = {
+        message,
+        location_name: locationName,
+        thread_id: threadId,
+        user_preferences: userPreferences,
+      };
+
+      // Use longer timeout for chat (LLM operations can take time)
+      return await httpClient.postWithLongTimeout<ChatResponse>(
+        aiEngineConfig.endpoints.locationChat,
+        request,
+        120000 // 2 minutes timeout
+      );
+    } catch (error) {
+      this.handleError(error, 'location chat');
     }
   }
 

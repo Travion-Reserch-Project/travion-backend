@@ -11,6 +11,7 @@ export interface AIEngineConfig {
   endpoints: {
     // Chat & Conversation
     chat: string;
+    locationChat: string;
     // Recommendations
     recommend: string;
     explain: string;
@@ -47,6 +48,7 @@ const getAIEngineConfig = (): AIEngineConfig => ({
   endpoints: {
     // Chat & Conversation
     chat: '/api/v1/chat',
+    locationChat: '/api/v1/chat/location',
     // Recommendations
     recommend: '/api/v1/recommend',
     explain: '/api/v1/explain',

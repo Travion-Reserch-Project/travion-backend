@@ -52,6 +52,11 @@ export interface ISessionContext {
     relaxation: number;
   };
   lastRecommendations?: string[];
+  /**
+   * Location name for location-specific chat sessions.
+   * When set, the chat is focused on this specific location.
+   */
+  locationName?: string;
 }
 
 /**
@@ -154,6 +159,11 @@ const sessionContextSchema = new Schema<ISessionContext>(
     lastRecommendations: [{
       type: String,
     }],
+    locationName: {
+      type: String,
+      trim: true,
+      maxlength: 200,
+    },
   },
   { _id: false }
 );
@@ -233,6 +243,8 @@ chatSessionSchema.index({ userId: 1, lastActivity: -1 });
 chatSessionSchema.index({ userId: 1, status: 1 });
 chatSessionSchema.index({ sessionId: 1 });
 chatSessionSchema.index({ userId: 1, createdAt: -1 });
+// Index for location-specific chat sessions
+chatSessionSchema.index({ userId: 1, 'context.locationName': 1 });
 
 // ============================================================================
 // MIDDLEWARE

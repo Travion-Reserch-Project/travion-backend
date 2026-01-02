@@ -7,6 +7,7 @@ import aiEngineRoutes from './aiEngineRoutes';
 import userPreferencesRoutes from './userPreferencesRoutes';
 import savedTripRoutes from './savedTripRoutes';
 import chatSessionRoutes from './chatSessionRoutes';
+import locationRoutes from './locationRoutes';
 
 const router = Router();
 
@@ -35,5 +36,6 @@ router.use('/ai', aiEngineRoutes);
 router.use('/preferences', userPreferencesRoutes);
 router.use('/trips', savedTripRoutes);
 router.use('/chat', chatSessionRoutes);
+router.use('/locations', locationRoutes);
 
 export default router;

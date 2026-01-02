@@ -20,6 +20,8 @@ import {
   getMessagesQuerySchema,
   searchSessionsQuerySchema,
   recentSessionsQuerySchema,
+  locationChatSchema,
+  locationNameParamSchema,
 } from '../validators/chatSessionValidator';
 
 const router = Router();
@@ -247,6 +249,43 @@ router.delete(
   '/sessions/:sessionId/link-trip',
   validateParams(sessionIdParamSchema),
   chatController.unlinkFromTrip
+);
+
+// ============================================================================
+// LOCATION-SPECIFIC CHAT
+// ============================================================================
+
+/**
+ * @route   POST /chat/location
+ * @desc    Location-specific chat (auto-creates location session)
+ * @access  Private
+ */
+router.post(
+  '/location',
+  validate(locationChatSchema),
+  chatController.locationChat
+);
+
+/**
+ * @route   GET /chat/location/:locationName
+ * @desc    Get session for a specific location
+ * @access  Private
+ */
+router.get(
+  '/location/:locationName',
+  validateParams(locationNameParamSchema),
+  chatController.getLocationSession
+);
+
+/**
+ * @route   DELETE /chat/sessions/:sessionId/messages
+ * @desc    Clear all messages from a session
+ * @access  Private
+ */
+router.delete(
+  '/sessions/:sessionId/messages',
+  validateParams(sessionIdParamSchema),
+  chatController.clearMessages
 );
 
 export default router;

@@ -376,4 +376,128 @@ export class ChatSessionService {
   async cleanupOldSessions(daysOld: number = 90): Promise<number> {
     return await this.repository.deleteOldArchived(daysOld);
   }
+
+  // ============================================================================
+  // LOCATION-SPECIFIC CHAT OPERATIONS
+  // ============================================================================
+
+  /**
+   * Get or create a location-specific chat session
+   * Each location gets its own persistent session per user
+   */
+  async getOrCreateLocationSession(
+    userId: string,
+    locationName: string,
+    context?: Partial<ISessionContext>
+  ): Promise<IChatSession> {
+    // Load user preferences
+    const preferences = await this.preferencesRepository.findByUserId(userId);
+    const fullContext: Partial<ISessionContext> = {
+      ...context,
+      locationName,
+      preferences: preferences?.preferenceScores,
+    };
+
+    return await this.repository.findOrCreateLocationSession(
+      userId,
+      locationName,
+      fullContext
+    );
+  }
+
+  /**
+   * Send a message in a location-specific chat session
+   * Uses the location chat endpoint for focused AI responses
+   */
+  async sendLocationMessage(
+    userId: string,
+    locationName: string,
+    message: string
+  ): Promise<{
+    session: IChatSession;
+    response: string;
+    intent?: string;
+    metadata?: unknown;
+  }> {
+    // Get or create location-specific session
+    const session = await this.getOrCreateLocationSession(userId, locationName);
+
+    // Add user message
+    const userMessage: IChatMessage = {
+      role: 'user',
+      content: message,
+      timestamp: new Date(),
+    };
+
+    // Call AI Engine with location focus
+    const aiResponse = await this.aiService.locationChat(
+      message,
+      locationName,
+      session.sessionId,
+      session.context.preferences
+    );
+
+    // Map constraints from snake_case to camelCase
+    const mappedConstraints = aiResponse.constraints?.map(c => ({
+      constraintType: c.constraint_type,
+      description: c.description,
+      severity: c.severity,
+    }));
+
+    // Add assistant message
+    const assistantMessage: IChatMessage = {
+      role: 'assistant',
+      content: aiResponse.response,
+      timestamp: new Date(),
+      metadata: {
+        intent: aiResponse.intent,
+        reasoningLoops: aiResponse.metadata?.reasoning_loops,
+        documentsRetrieved: aiResponse.metadata?.documents_retrieved,
+        webSearchUsed: aiResponse.metadata?.web_search_used,
+        constraints: mappedConstraints,
+      },
+    };
+
+    // Save both messages
+    const updatedSession = await this.repository.addMessages(
+      session.sessionId,
+      userId,
+      [userMessage, assistantMessage]
+    );
+
+    if (!updatedSession) {
+      throw new AppError('Failed to save messages', 500);
+    }
+
+    return {
+      session: updatedSession,
+      response: aiResponse.response,
+      intent: aiResponse.intent,
+      metadata: aiResponse.metadata,
+    };
+  }
+
+  /**
+   * Get location session by location name
+   */
+  async getLocationSession(
+    userId: string,
+    locationName: string
+  ): Promise<IChatSession | null> {
+    return await this.repository.findByLocationAndUser(locationName, userId);
+  }
+
+  /**
+   * Clear all messages from a session (keeps session)
+   */
+  async clearMessages(
+    sessionId: string,
+    userId: string
+  ): Promise<IChatSession> {
+    const session = await this.repository.clearMessages(sessionId, userId);
+    if (!session) {
+      throw new AppError('Chat session not found', 404);
+    }
+    return session;
+  }
 }

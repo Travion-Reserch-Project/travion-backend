@@ -77,6 +77,19 @@ export interface ChatResponse {
 }
 
 // ============================================================================
+// LOCATION CHAT API TYPES (/api/v1/chat/location)
+// ============================================================================
+
+export interface LocationChatRequest {
+  message: string;              // User message (1-2000 chars)
+  thread_id?: string;           // Thread ID for conversation persistence
+  location_name: string;        // Location to focus on (2-100 chars)
+  user_preferences?: UserPreferenceScores; // User preference scores
+}
+
+// Location chat uses the same ChatResponse type
+
+// ============================================================================
 // RECOMMENDATION API TYPES (/api/v1/recommend)
 // ============================================================================
 

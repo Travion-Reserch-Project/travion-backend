@@ -137,3 +137,19 @@ export const searchSessionsQuerySchema = Joi.object({
 export const recentSessionsQuerySchema = Joi.object({
   limit: Joi.number().integer().min(1).max(20).default(5),
 });
+
+// ============================================================================
+// LOCATION CHAT SCHEMAS
+// ============================================================================
+
+export const locationChatSchema = Joi.object({
+  locationName: Joi.string().min(2).max(100).required()
+    .messages({ 'any.required': 'Location name is required' }),
+  message: Joi.string().min(1).max(2000).required()
+    .messages({ 'any.required': 'Message is required' }),
+});
+
+export const locationNameParamSchema = Joi.object({
+  locationName: Joi.string().min(2).max(100).required()
+    .messages({ 'any.required': 'Location name is required' }),
+});

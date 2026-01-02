@@ -461,4 +461,76 @@ export class ChatSessionRepository {
 
     return result.deletedCount;
   }
+
+  // ============================================================================
+  // LOCATION-SPECIFIC SESSION OPERATIONS
+  // ============================================================================
+
+  /**
+   * Find session by location name for a user
+   * Used for location-specific chats where each location has its own session
+   */
+  async findByLocationAndUser(
+    locationName: string,
+    userId: string
+  ): Promise<IChatSession | null> {
+    return await ChatSession.findOne({
+      userId: new mongoose.Types.ObjectId(userId),
+      'context.locationName': locationName,
+      status: 'active',
+    });
+  }
+
+  /**
+   * Find or create a location-specific session
+   * Each location gets its own persistent session per user
+   */
+  async findOrCreateLocationSession(
+    userId: string,
+    locationName: string,
+    context?: Partial<ISessionContext>
+  ): Promise<IChatSession> {
+    // First try to find existing location session
+    const existing = await this.findByLocationAndUser(locationName, userId);
+    if (existing) return existing;
+
+    // Create new location-specific session
+    const sessionId = this.generateSessionId();
+    const session = new ChatSession({
+      userId: new mongoose.Types.ObjectId(userId),
+      sessionId,
+      title: `Chat: ${locationName}`,
+      context: {
+        ...context,
+        locationName,
+      },
+      messages: [],
+      status: 'active',
+    });
+    return await session.save();
+  }
+
+  /**
+   * Clear all messages from a session
+   * Keeps the session but removes message history
+   */
+  async clearMessages(
+    sessionId: string,
+    userId: string
+  ): Promise<IChatSession | null> {
+    return await ChatSession.findOneAndUpdate(
+      {
+        sessionId,
+        userId: new mongoose.Types.ObjectId(userId),
+      },
+      {
+        $set: {
+          messages: [],
+          messageCount: 0,
+          lastActivity: new Date(),
+        },
+      },
+      { new: true }
+    );
+  }
 }
