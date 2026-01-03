@@ -422,6 +422,13 @@ export class ChatSessionService {
     // Get or create location-specific session
     const session = await this.getOrCreateLocationSession(userId, locationName);
 
+    // Get conversation history from the session (last 10 messages for context)
+    const existingMessages = session.messages || [];
+    const conversationHistory = existingMessages.slice(-10).map(msg => ({
+      role: msg.role as 'user' | 'assistant',
+      content: msg.content,
+    }));
+
     // Add user message
     const userMessage: IChatMessage = {
       role: 'user',
@@ -429,12 +436,13 @@ export class ChatSessionService {
       timestamp: new Date(),
     };
 
-    // Call AI Engine with location focus
+    // Call AI Engine with location focus and conversation history
     const aiResponse = await this.aiService.locationChat(
       message,
       locationName,
       session.sessionId,
-      session.context.preferences
+      session.context.preferences,
+      conversationHistory
     );
 
     // Map constraints from snake_case to camelCase

@@ -145,7 +145,8 @@ export class AIEngineService {
     message: string,
     locationName: string,
     threadId?: string,
-    userPreferences?: UserPreferenceScores
+    userPreferences?: UserPreferenceScores,
+    conversationHistory?: { role: 'user' | 'assistant'; content: string }[]
   ): Promise<ChatResponse> {
     try {
       const request: LocationChatRequest = {
@@ -153,6 +154,7 @@ export class AIEngineService {
         location_name: locationName,
         thread_id: threadId,
         user_preferences: userPreferences,
+        conversation_history: conversationHistory,
       };
 
       // Use longer timeout for chat (LLM operations can take time)
