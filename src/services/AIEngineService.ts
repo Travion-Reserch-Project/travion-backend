@@ -13,6 +13,10 @@ import {
   ChatRequest,
   ChatResponse,
   LocationChatRequest,
+  // Tour Plan
+  TourPlanGenerateRequest,
+  TourPlanResponse,
+  SelectedLocation,
   // Recommendations
   RecommendationRequest,
   RecommendationResponse,
@@ -165,6 +169,82 @@ export class AIEngineService {
       );
     } catch (error) {
       this.handleError(error, 'location chat');
+    }
+  }
+
+  // ============================================================================
+  // TOUR PLAN GENERATION API
+  // ============================================================================
+
+  /**
+   * Generate an optimized tour plan
+   * POST /api/v1/tour-plan/generate
+   * Uses extended timeout (180s) for complex plan generation
+   */
+  async generateTourPlan(
+    selectedLocations: SelectedLocation[],
+    startDate: string,
+    endDate: string,
+    threadId?: string,
+    preferences?: string[],
+    message?: string
+  ): Promise<TourPlanResponse> {
+    try {
+      const request: TourPlanGenerateRequest = {
+        selected_locations: selectedLocations,
+        start_date: startDate,
+        end_date: endDate,
+        thread_id: threadId,
+        preferences,
+        message,
+      };
+
+      logger.info(`Generating tour plan for ${selectedLocations.length} locations`);
+
+      // Use longer timeout for tour plan generation (can take time)
+      return await httpClient.postWithLongTimeout<TourPlanResponse>(
+        `${aiEngineConfig.baseUrl}/api/v1/tour-plan/generate`,
+        request,
+        180000 // 3 minutes timeout
+      );
+    } catch (error) {
+      this.handleError(error, 'tour plan generation');
+    }
+  }
+
+  /**
+   * Refine an existing tour plan
+   * POST /api/v1/tour-plan/refine
+   * Uses extended timeout (180s) for plan refinement
+   */
+  async refineTourPlan(
+    threadId: string,
+    message: string,
+    selectedLocations: SelectedLocation[],
+    startDate: string,
+    endDate: string,
+    preferences?: string[]
+  ): Promise<TourPlanResponse> {
+    try {
+      const request: TourPlanGenerateRequest = {
+        selected_locations: selectedLocations,
+        start_date: startDate,
+        end_date: endDate,
+        thread_id: threadId,
+        preferences,
+        message,
+      };
+
+      logger.info(`Refining tour plan with thread ${threadId}`);
+
+      // Use longer timeout for tour plan refinement
+      return await httpClient.postWithLongTimeout<TourPlanResponse>(
+        `${aiEngineConfig.baseUrl}/api/v1/tour-plan/refine`,
+        request,
+        180000 // 3 minutes timeout
+      );
+    } catch (error) {
+      this.handleError(error, 'tour plan refinement');
     }
   }
 

@@ -8,6 +8,7 @@ import userPreferencesRoutes from './userPreferencesRoutes';
 import savedTripRoutes from './savedTripRoutes';
 import chatSessionRoutes from './chatSessionRoutes';
 import locationRoutes from './locationRoutes';
+import tourPlanRoutes from './tourPlanRoutes';
 
 const router = Router();
 
@@ -37,5 +38,6 @@ router.use('/preferences', userPreferencesRoutes);
 router.use('/trips', savedTripRoutes);
 router.use('/chat', chatSessionRoutes);
 router.use('/locations', locationRoutes);
+router.use('/tour-plan', tourPlanRoutes);
 
 export default router;

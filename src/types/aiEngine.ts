@@ -46,6 +46,11 @@ export interface ItinerarySlot {
   crowd_prediction: number;     // Expected crowd (0-100)
   lighting_quality: string;     // "golden", "harsh", "good", "dark"
   notes?: string;               // Special considerations
+  day?: number;                 // Day number in multi-day trip
+  order?: number;               // Order within the day
+  icon?: string;                // Icon name for UI display
+  highlight?: boolean;          // Whether this is a highlighted activity
+  ai_insight?: string;          // AI-generated insight for this activity
 }
 
 export interface ConstraintViolation {
@@ -74,6 +79,48 @@ export interface ChatResponse {
     documents_retrieved: number;
     web_search_used: boolean;
   };
+}
+
+// ============================================================================
+// TOUR PLAN GENERATION API TYPES (/api/v1/tour-plan/generate)
+// ============================================================================
+
+export interface SelectedLocation {
+  name: string;                 // Location name
+  latitude: number;             // Latitude coordinate
+  longitude: number;            // Longitude coordinate
+  image_url?: string;           // Location image URL
+  distance_km?: number;         // Distance from user's location
+}
+
+export interface TourPlanGenerateRequest {
+  selected_locations: SelectedLocation[];  // List of locations to include
+  start_date: string;           // Trip start date (YYYY-MM-DD)
+  end_date: string;             // Trip end date (YYYY-MM-DD)
+  thread_id?: string;           // Session ID for conversation continuity
+  preferences?: string[];       // User preferences (e.g., ["photography", "nature"])
+  message?: string;             // Optional message for plan generation/refinement
+}
+
+export interface TourPlanMetadata {
+  match_score: number;          // Overall match score (0-100)
+  total_days: number;           // Number of days in the plan
+  total_locations: number;      // Number of locations covered
+  golden_hour_optimized: boolean;
+  crowd_optimized: boolean;
+  event_aware: boolean;
+}
+
+export interface TourPlanResponse {
+  success: boolean;
+  thread_id: string;            // Session ID for conversation continuity
+  response: string;             // Generated response text summary
+  itinerary: ItinerarySlot[];   // List of itinerary slots organized by day
+  metadata: TourPlanMetadata;   // Plan metadata with scores
+  constraints?: ConstraintViolation[];
+  reasoning_logs?: ReasoningLog[];
+  warnings?: string[];          // List of warnings for the plan
+  tips?: string[];              // Helpful tips for the trip
 }
 
 // ============================================================================
