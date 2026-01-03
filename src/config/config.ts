@@ -35,9 +35,15 @@ interface Config {
     clientId: string;
     clientSecret: string;
   };
+  googleMaps: {
+    apiKey: string;
+  };
+  mlServices: {
+    safetyApiUrl: string;
+  };
 }
 
-//Get configuration dynamically from process.env
+//Get configuration dynamically from process.env*
 const getConfig = (): Config => ({
   env: process.env.NODE_ENV || 'development',
   port: parseInt(process.env.PORT || '3001', 10),
@@ -68,6 +74,12 @@ const getConfig = (): Config => ({
   google: {
     clientId: process.env.GOOGLE_CLIENT_ID || '',
     clientSecret: process.env.GOOGLE_CLIENT_SECRET || '',
+  },
+  googleMaps: {
+    apiKey: process.env.GOOGLE_MAPS_API_KEY || '',
+  },
+  mlServices: {
+    safetyApiUrl: process.env.SAFETY_API_URL || 'http://localhost:8003/api/safety',
   },
 });
 
