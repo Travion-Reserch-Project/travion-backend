@@ -41,7 +41,7 @@ export interface AIEngineConfig {
  * Uses a factory function to ensure fresh values on each call
  */
 const getAIEngineConfig = (): AIEngineConfig => ({
-  baseUrl: process.env.AI_ENGINE_BASE_URL || 'http://localhost:8001',
+  baseUrl: process.env.AI_ENGINE_BASE_URL || 'http://localhost:8000',
   timeout: parseInt(process.env.AI_ENGINE_TIMEOUT || '30000', 10),
   retryAttempts: parseInt(process.env.AI_ENGINE_RETRY_ATTEMPTS || '3', 10),
   retryDelay: parseInt(process.env.AI_ENGINE_RETRY_DELAY || '1000', 10),
