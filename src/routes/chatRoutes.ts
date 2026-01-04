@@ -1,7 +1,9 @@
 import { Router } from 'express';
 import { ChatController } from '../controllers/ChatController';
+import { TimetableController } from '../controllers/TimetableController';
 import { authenticate } from '../middleware/auth';
 import { chatLimiter, feedbackLimiter } from '../config/rateLimiter';
+import { logger } from '../config/logger';
 import {
   chatQueryValidator,
   chatFeedbackValidator,
@@ -10,12 +12,32 @@ import {
   chatHistoryValidator,
   analyticsValidator,
   travelRecommendationValidator,
+  timetableQueryValidator,
 } from '../validators/chatValidator';
 
 const router = Router();
 const chatController = new ChatController();
+const timetableController = new TimetableController();
 
-// Apply authentication middleware to all chat routes
+// Get timetable data for a service (PUBLIC - no auth required)
+router.get(
+  '/timetable',
+  (req: any, _res: any, next: any) => {
+    logger.info('timetable route: before validation', {
+      query: req.query,
+      queryKeys: Object.keys(req.query),
+    });
+    next();
+  },
+  timetableQueryValidator,
+  (req: any, _res: any, next: any) => {
+    logger.info('timetable route: after validation', { query: req.query });
+    next();
+  },
+  timetableController.getTimetable
+);
+
+// Apply authentication middleware to all other chat routes
 router.use(authenticate as any);
 
 // Main chat query endpoint

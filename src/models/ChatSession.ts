@@ -1,6 +1,7 @@
 import mongoose, { Document, Schema } from 'mongoose';
 
 export interface IChatSession extends Document {
+  sessionId: string;
   userId: mongoose.Types.ObjectId;
   startTime: Date;
   endTime?: Date;
@@ -12,12 +13,25 @@ export interface IChatSession extends Document {
     platform: string;
     version?: string;
   };
+  travelState?: {
+    origin?: string;
+    destination?: string;
+    departureDate?: string;
+    departureTime?: string;
+    pendingFields?: string[];
+    lastAskedField?: string;
+  };
   createdAt: Date;
   updatedAt: Date;
 }
 
 const chatSessionSchema = new Schema<IChatSession>(
   {
+    sessionId: {
+      type: String,
+      unique: true,
+      index: true,
+    },
     userId: {
       type: Schema.Types.ObjectId,
       ref: 'User',
@@ -61,6 +75,13 @@ const chatSessionSchema = new Schema<IChatSession>(
         trim: true,
       },
     },
+    travelState: {
+      origin: { type: String, trim: true },
+      destination: { type: String, trim: true },
+      departureDate: { type: String, trim: true },
+      departureTime: { type: String, trim: true },
+      pendingFields: [{ type: String, trim: true }],
+    },
   },
   {
     timestamps: true,
@@ -99,6 +120,11 @@ chatSessionSchema.pre('save', async function (next) {
     if (!userExists) {
       throw new Error('Invalid userId: Referenced user does not exist');
     }
+  }
+
+  const doc = this as unknown as { _id: mongoose.Types.ObjectId; sessionId?: string };
+  if (!doc.sessionId) {
+    doc.sessionId = doc._id.toString();
   }
   next();
 });

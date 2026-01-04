@@ -9,7 +9,7 @@ export class ChatRepository {
   }
 
   async findSessionById(sessionId: string): Promise<IChatSession | null> {
-    return await ChatSession.findOne({ sessionId });
+    return await ChatSession.findOne({ $or: [{ _id: sessionId }, { sessionId }] });
   }
 
   async findSessionsByUserId(
@@ -30,11 +30,19 @@ export class ChatRepository {
     return await query;
   }
 
+  async findActiveSessionByUserId(userId: string): Promise<IChatSession | null> {
+    return await ChatSession.findOne({ userId, sessionStatus: 'active' }).sort({ startTime: -1 });
+  }
+
   async updateSession(
     sessionId: string,
     updateData: Partial<IChatSession>
   ): Promise<IChatSession | null> {
-    return await ChatSession.findOneAndUpdate({ sessionId }, { $set: updateData }, { new: true });
+    return await ChatSession.findOneAndUpdate(
+      { $or: [{ _id: sessionId }, { sessionId }] },
+      { $set: updateData },
+      { new: true }
+    );
   }
 
   async countSessionsByUserId(userId: string): Promise<number> {
@@ -43,7 +51,7 @@ export class ChatRepository {
 
   async endSession(sessionId: string): Promise<IChatSession | null> {
     return await ChatSession.findOneAndUpdate(
-      { sessionId },
+      { $or: [{ _id: sessionId }, { sessionId }] },
       {
         $set: {
           sessionStatus: 'ended',

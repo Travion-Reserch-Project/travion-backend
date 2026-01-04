@@ -2,6 +2,7 @@ import { IChatSession } from '../models/ChatSession';
 import { IChatQuery } from '../models/ChatQuery';
 import { ChatRepository } from '../repositories/ChatRepository';
 import { ChatPreferencesRepository } from '../repositories/ChatPreferencesRepository';
+import { logger } from '../config/logger';
 import { MLService, MLServiceRequest } from './MLService';
 import { LLMService, TripExtraction } from './LLMService';
 import { RecommendationService, RecommendationResponse } from './RecommendationService';
@@ -56,6 +57,12 @@ export interface TravelRecommendationRequest {
   destination?: string;
   departureDate?: string;
   departureTime?: string;
+  state?: TripExtraction;
+  answeredField?: 'origin' | 'destination' | 'departureDate' | 'departureTime';
+  pendingFields?: Array<'origin' | 'destination' | 'departureDate' | 'departureTime'>;
+  currentField?: 'origin' | 'destination' | 'departureDate' | 'departureTime';
+  sessionId?: mongoose.Types.ObjectId | string;
+  deviceInfo?: { platform: string; version?: string };
 }
 
 export interface TravelRecommendationResponse {
@@ -68,6 +75,9 @@ export interface TravelRecommendationResponse {
     clarificationPrompt?: string;
     nextQuestion?: string;
     pendingFields?: string[];
+    state?: TripExtraction;
+    nextField?: 'origin' | 'destination' | 'departureDate' | 'departureTime';
+    sessionId?: string;
   };
   error?: {
     message: string;
@@ -393,6 +403,12 @@ export class ChatService {
       }
     }
 
+    // Reuse the most recent active session for this user if available
+    const activeSession = await this.chatRepository.findActiveSessionByUserId(userId);
+    if (activeSession) {
+      return activeSession;
+    }
+
     // Create new session
     const session = await this.chatRepository.createSession({
       userId: new mongoose.Types.ObjectId(userId),
@@ -427,6 +443,7 @@ export class ChatService {
   }
 
   async getTravelRecommendation(
+    userId: string,
     request: TravelRecommendationRequest
   ): Promise<TravelRecommendationResponse> {
     try {
@@ -434,54 +451,170 @@ export class ChatService {
         this.llmService = new LLMService();
       }
 
-      const extraction = await this.llmService.extractTripDetails(request.message, {
-        origin: request.origin,
-        destination: request.destination,
-        departureDate: request.departureDate,
-        departureTime: request.departureTime,
+      const session = await this.getOrCreateSession(userId, request.sessionId, request.deviceInfo);
+      const sessionState = (session as any).travelState || {};
+
+      const seed: TripExtraction = {
+        ...sessionState,
+        ...(request.state || {}),
+        ...(request.origin ? { origin: request.origin } : {}),
+        ...(request.destination ? { destination: request.destination } : {}),
+        ...(request.departureDate ? { departureDate: request.departureDate } : {}),
+        ...(request.departureTime ? { departureTime: request.departureTime } : {}),
+      };
+
+      let answeredField = request.answeredField;
+      const pendingFromClient = request.pendingFields || [];
+      const currentField = request.currentField;
+      const lastAskedField = sessionState?.lastAskedField;
+
+      // If client didn't specify answeredField, try to infer from context
+      // Priority: currentField (client-provided) > lastAskedField (server-tracked) > first pending
+      if (!answeredField && request.message.trim().length > 0) {
+        if (currentField) {
+          answeredField = currentField;
+        } else if (lastAskedField) {
+          answeredField = lastAskedField;
+        } else if (pendingFromClient.length > 0) {
+          answeredField = pendingFromClient[0];
+        }
+      }
+
+      logger.info('getTravelRecommendation field inference', {
+        userId,
+        message: request.message,
+        answeredField,
+        lastAskedField,
+        currentField,
+        sessionState: { origin: sessionState?.origin, destination: sessionState?.destination },
       });
 
-      if (extraction.missingFields.length > 0) {
-        const firstMissing = extraction.missingFields[0];
-        const followUpByField: Record<string, string> = {
-          origin: 'What city or station are you starting from?',
-          destination: 'Where do you want to go?',
-          departureDate: 'What date do you want to travel? (YYYY-MM-DD)',
-          departureTime: 'What time do you want to travel? (HH:MM, 24h)',
-        };
+      // Apply the explicit answer up-front to avoid LLM ambiguity
+      if (answeredField) {
+        seed[answeredField] = request.message.trim();
+      }
 
-        const clarificationPrompt = `I need ${extraction.missingFields.join(
+      const extraction = await this.llmService.extractTripDetails(
+        request.message,
+        seed,
+        answeredField
+      );
+
+      // Merge while preserving already-known seed values; only fill blanks from extraction
+      const merged: TripExtraction = { ...seed };
+      (['origin', 'destination', 'departureDate', 'departureTime'] as const).forEach((field) => {
+        const valueFromExtraction = (extraction.extracted as any)[field];
+        if (!merged[field] && valueFromExtraction) {
+          merged[field] = valueFromExtraction;
+        }
+      });
+
+      // Ensure the explicitly answered field is kept exactly as the user provided
+      if (answeredField) {
+        merged[answeredField] = request.message.trim();
+      }
+
+      // Recompute missing fields after merge and answeredField assignment
+      const missing = ['origin', 'destination', 'departureDate', 'departureTime'].filter(
+        (field) => !(merged as any)[field]
+      );
+
+      if (missing.length > 0) {
+        let nextQuestion: string;
+        const nextField = missing[0] as typeof answeredField;
+        try {
+          nextQuestion = await this.llmService.generateFollowUpQuestion(merged, missing);
+        } catch (err) {
+          const firstMissing = missing[0];
+          const fallbackByField: Record<string, string> = {
+            origin: 'What city or station are you starting from?',
+            destination: 'Where do you want to go?',
+            departureDate: 'What date do you want to travel? (YYYY-MM-DD)',
+            departureTime: 'What time do you want to travel? (HH:MM, 24h)',
+          };
+          nextQuestion = fallbackByField[firstMissing] || 'Could you share the missing details?';
+        }
+
+        const clarificationPrompt = `I need ${missing.join(
           ', '
         )}. Please provide them to continue.`;
-        const nextQuestion = followUpByField[firstMissing] || clarificationPrompt;
+
+        // Persist the field we're asking about so next request knows which field user is answering
+        await this.chatRepository.updateSession(String(session._id), {
+          travelState: {
+            ...merged,
+            pendingFields: missing,
+            lastAskedField: nextField,
+          },
+        } as any);
 
         return {
           success: true,
           data: {
             status: 'needs_clarification',
-            extracted: extraction.extracted,
-            missingFields: extraction.missingFields,
+            extracted: merged,
+            missingFields: missing,
             clarificationPrompt,
             nextQuestion,
-            pendingFields: extraction.missingFields,
+            pendingFields: missing,
+            state: merged,
+            nextField,
+            sessionId: String(session._id),
           },
         };
       }
 
-      const recommendation = await this.recommendationService.getRecommendations(
-        extraction.extracted
-      );
+      // Persist state to session
+      await this.chatRepository.updateSession(String(session._id), {
+        travelState: {
+          ...merged,
+          pendingFields: [],
+        },
+      } as any);
+
+      // Try to get recommendations, but don't fail if service is unavailable
+      let recommendation: any = null;
+      try {
+        recommendation = await this.recommendationService.getRecommendations(merged);
+
+        // Mark session as completed after successful recommendation (prepare for next trip)
+        if (recommendation?.success) {
+          await this.chatRepository.updateSession(String(session._id), {
+            sessionStatus: 'completed',
+            travelState: {
+              origin: undefined,
+              destination: undefined,
+              departureDate: undefined,
+              departureTime: undefined,
+              pendingFields: ['origin', 'destination', 'departureDate', 'departureTime'],
+              lastAskedField: undefined,
+            },
+          } as any);
+          logger.info('Session marked as completed after recommendation', {
+            sessionId: String(session._id),
+          });
+        }
+      } catch (recError: any) {
+        logger.warn('Recommendation service unavailable', {
+          message: recError?.message,
+          code: recError?.code,
+        });
+        // Continue without recommendations
+      }
 
       return {
         success: true,
         data: {
           status: 'ready',
-          extracted: extraction.extracted,
+          extracted: merged,
           recommendation,
+          state: merged,
+          sessionId: String(session._id),
         },
       };
     } catch (error: any) {
-      const message = error?.message || 'Failed to get recommendation';
+      const message = error?.message || 'Failed to process travel recommendation';
+      logger.error('getTravelRecommendation failed', { error: message, stack: error?.stack });
       return {
         success: false,
         error: {

@@ -109,13 +109,35 @@ export const travelRecommendationValidator = [
 
   body('departureDate')
     .optional()
-    .isISO8601()
-    .withMessage('Departure date must be in ISO 8601 format'),
+    .isString()
+    .isLength({ max: 50 })
+    .withMessage('Departure date must be a string'),
 
   body('departureTime')
     .optional()
-    .matches(/^([01]\d|2[0-3]):[0-5]\d$/)
-    .withMessage('Departure time must be HH:MM in 24-hour format'),
+    .isString()
+    .isLength({ max: 50 })
+    .withMessage('Departure time must be a string'),
+
+  body('state').optional(),
+
+  body('state.origin').optional().isString().isLength({ max: 200 }),
+  body('state.destination').optional().isString().isLength({ max: 200 }),
+  body('state.departureDate').optional().isString().isLength({ max: 50 }),
+  body('state.departureTime').optional().isString().isLength({ max: 50 }),
+
+  body('answeredField').optional(),
+
+  body('pendingFields').optional(),
+
+  body('pendingFields.*').optional(),
+
+  body('currentField').optional(),
+
+  body('sessionId').optional(),
+  body('deviceInfo').optional(),
+  body('deviceInfo.platform').optional(),
+  body('deviceInfo.version').optional(),
 ];
 
 export const updateChatPreferencesValidator = [
@@ -129,4 +151,20 @@ export const updateChatPreferencesValidator = [
     .optional()
     .isBoolean()
     .withMessage('Enable notifications must be a boolean'),
+];
+
+export const timetableQueryValidator = [
+  query('service_id').trim().notEmpty().withMessage('Service ID is required'),
+
+  query('departure_date')
+    .trim()
+    .notEmpty()
+    .matches(/^\d{4}-\d{2}-\d{2}$/)
+    .withMessage('Departure date must be in YYYY-MM-DD format'),
+
+  query('departure_time')
+    .trim()
+    .notEmpty()
+    .matches(/^([01]\d|2[0-3]):[0-5]\d$/)
+    .withMessage('Departure time must be in HH:MM 24-hour format'),
 ];
