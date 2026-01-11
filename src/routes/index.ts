@@ -4,6 +4,7 @@ import { join } from 'path';
 import authRoutes from './authRoutes';
 import userRoutes from './userRoutes';
 import { chatRoutes } from './chatRoutes';
+import healthRoutes from './HealthProfileRoutes';
 
 const router = Router();
 
@@ -29,5 +30,6 @@ router.get('/health', (_req, res) => {
 router.use('/auth', authRoutes);
 router.use('/users', userRoutes);
 router.use('/chat', chatRoutes);
+router.use('/health', healthRoutes);
 
 export default router;
