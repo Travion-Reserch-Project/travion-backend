@@ -13,6 +13,8 @@
     "format:check": "prettier --check \"src/**/*.ts\"",
     "type-check": "tsc --noEmit",
     "test": "echo \"No tests yet\" && exit 0",
+    "seed": "ts-node src/seeds/seedDatabase.ts",
+    "seed:build": "tsc && node dist/seeds/seedDatabase.js",
     "test:constraints": "ts-node src/tests/DatabaseConstraintTester.ts",
     "docker:build": "docker build -t travion-backend:local .",
     "docker:run": "docker run -p 3001:3001 -e INFISICAL_CLIENT_ID -e INFISICAL_CLIENT_SECRET -e INFISICAL_PROJECT_ID -e INFISICAL_ENVIRONMENT -e INFISICAL_SECRET_PATH -e INFISICAL_SITE_URL travion-backend:local",
