@@ -1,353 +1,232 @@
-import axios, { AxiosResponse } from 'axios';
+import axios, { AxiosInstance } from 'axios';
+import { logger } from '../config/logger';
 
-export interface MLServiceConfig {
-  baseURL: string;
-  timeout: number;
-  retries: number;
-  retryDelay: number;
-}
-
-export interface MLServiceRequest {
-  query: string;
-  userLocation?: {
+export interface TransportPredictionRequest {
+  origin: {
     latitude: number;
     longitude: number;
-    address?: string;
   };
-  context?: {
-    userId: string;
-    sessionId: string;
-    language?: string;
+  destination: {
+    latitude: number;
+    longitude: number;
   };
+  distance_km: number;
+  departure_time?: string;
+  day_of_week?: number;
+  weather_condition?: string;
 }
 
-export interface MLServiceResponse {
-  success: boolean;
-  data: {
-    response: string;
-    recommendations?: Array<{
-      type: string;
-      details: any;
-      confidence: number;
-    }>;
-    queryType: string;
-    processingTime: number;
+export interface TransportPredictionResponse {
+  predicted_mode: 'bus' | 'train' | 'mixed';
+  confidence: number;
+  explanation?: {
+    factors: string[];
+    reasoning: string;
   };
-  error?: {
-    message: string;
-    code: string;
-  };
-}
-
-export interface MLServiceHealth {
-  status: 'healthy' | 'unhealthy';
-  version?: string;
-  uptime?: number;
-  lastCheck: Date;
+  alternatives?: Array<{
+    mode: string;
+    confidence: number;
+  }>;
 }
 
 export class MLService {
-  private config: MLServiceConfig;
-  private healthStatus: MLServiceHealth;
+  private client: AxiosInstance;
+  private baseUrl: string;
+  private isEnabled: boolean;
 
-  constructor(config?: Partial<MLServiceConfig>) {
-    this.config = {
-      baseURL: 'http://localhost:8001',
-      timeout: 30000, // 30 seconds
-      retries: 3,
-      retryDelay: 1000, // 1 second
-      ...config,
-    };
+  constructor() {
+    this.baseUrl = process.env.ML_SERVICE_URL || 'http://localhost:5000';
+    this.isEnabled = process.env.ML_SERVICE_ENABLED === 'true';
 
-    this.healthStatus = {
-      status: 'unhealthy',
-      lastCheck: new Date(),
-    };
-
-    // Check health on initialization
-    this.checkHealth();
-  }
-
-  /**
-   * Send a query to the ML service
-   */
-  async sendQuery(request: MLServiceRequest): Promise<{
-    response: MLServiceResponse | null;
-    latency: number;
-    status: 'success' | 'error' | 'timeout' | 'unavailable';
-    errorDetails?: any;
-  }> {
-    const startTime = Date.now();
-    let attempt = 0;
-
-    while (attempt < this.config.retries) {
-      try {
-        const response = await this.makeRequest('/api/query', request);
-        const latency = Date.now() - startTime;
-
-        return {
-          response: response.data,
-          latency,
-          status: 'success',
-        };
-      } catch (error: any) {
-        attempt++;
-        const latency = Date.now() - startTime;
-
-        // If it's the last attempt, return the error
-        if (attempt >= this.config.retries) {
-          const status = this.determineErrorStatus(error);
-          return {
-            response: null,
-            latency,
-            status,
-            errorDetails: {
-              message: error.message || 'Unknown error',
-              code: error.code || 'UNKNOWN',
-              response: error.response?.data,
-              status: error.response?.status,
-            },
-          };
-        }
-
-        // Wait before retry
-        await this.delay(this.config.retryDelay * attempt);
-      }
-    }
-
-    // This should never be reached, but just in case
-    return {
-      response: null,
-      latency: Date.now() - startTime,
-      status: 'error',
-      errorDetails: { message: 'Max retries exceeded' },
-    };
-  }
-
-  /**
-   * Check the health of the ML service
-   */
-  async checkHealth(): Promise<MLServiceHealth> {
-    try {
-      const response = await axios.get(`${this.config.baseURL}/health`, {
-        timeout: 5000, // 5 seconds for health check
-      });
-
-      this.healthStatus = {
-        status: 'healthy',
-        version: response.data.version,
-        uptime: response.data.uptime,
-        lastCheck: new Date(),
-      };
-    } catch (error) {
-      this.healthStatus = {
-        status: 'unhealthy',
-        lastCheck: new Date(),
-      };
-    }
-
-    return this.healthStatus;
-  }
-
-  /**
-   * Get current health status
-   */
-  getHealthStatus(): MLServiceHealth {
-    return { ...this.healthStatus };
-  }
-
-  /**
-   * Detect query type based on keywords and content
-   */
-  detectQueryType(
-    query: string
-  ): 'transport' | 'general' | 'location' | 'recommendation' | 'other' {
-    const lowerQuery = query.toLowerCase();
-
-    // Transport keywords
-    const transportKeywords = [
-      'bus',
-      'train',
-      'metro',
-      'taxi',
-      'uber',
-      'grab',
-      'transport',
-      'travel',
-      'route',
-      'direction',
-      'navigation',
-      'ride',
-      'journey',
-      'trip',
-      'station',
-      'stop',
-      'schedule',
-      'timetable',
-      'fare',
-      'ticket',
-    ];
-
-    // Location keywords
-    const locationKeywords = [
-      'where',
-      'location',
-      'address',
-      'place',
-      'near',
-      'nearby',
-      'distance',
-      'map',
-      'gps',
-      'coordinates',
-    ];
-
-    // Recommendation keywords
-    const recommendationKeywords = [
-      'recommend',
-      'suggest',
-      'best',
-      'fastest',
-      'cheapest',
-      'optimal',
-      'prefer',
-      'option',
-      'alternative',
-      'choice',
-    ];
-
-    // Check for transport-related queries
-    if (transportKeywords.some((keyword) => lowerQuery.includes(keyword))) {
-      return 'transport';
-    }
-
-    // Check for location-related queries
-    if (locationKeywords.some((keyword) => lowerQuery.includes(keyword))) {
-      return 'location';
-    }
-
-    // Check for recommendation queries
-    if (recommendationKeywords.some((keyword) => lowerQuery.includes(keyword))) {
-      return 'recommendation';
-    }
-
-    // Default to general if no specific patterns found
-    return 'general';
-  }
-
-  /**
-   * Format ML service response into conversational text
-   */
-  formatResponse(mlResponse: MLServiceResponse, queryType: string): string {
-    try {
-      if (!mlResponse.success || !mlResponse.data) {
-        return this.getFallbackResponse(queryType);
-      }
-
-      let formattedText = mlResponse.data.response;
-
-      // Add recommendations if available
-      if (mlResponse.data.recommendations && mlResponse.data.recommendations.length > 0) {
-        formattedText += '\n\nHere are some recommendations:\n';
-        mlResponse.data.recommendations.forEach((rec, index) => {
-          formattedText += `${index + 1}. ${rec.type}: ${this.formatRecommendation(rec.details)}\n`;
-        });
-      }
-
-      return formattedText;
-    } catch (error) {
-      console.error('Error formatting ML response:', error);
-      return this.getFallbackResponse(queryType);
-    }
-  }
-
-  /**
-   * Get fallback response when ML service is unavailable
-   */
-  private getFallbackResponse(queryType: string): string {
-    const fallbackResponses = {
-      transport:
-        "I'm sorry, I'm having trouble accessing transport information right now. Please try again in a moment or contact support if the issue persists.",
-      location:
-        "I'm currently unable to process location queries. Please try again later or provide more specific details.",
-      recommendation:
-        "I'm sorry, I can't provide recommendations at the moment due to a temporary service issue. Please try again soon.",
-      general:
-        "I'm experiencing some technical difficulties right now. Please try again in a few moments.",
-      other: "I'm sorry, I'm unable to process your request at the moment. Please try again later.",
-    };
-
-    return (
-      fallbackResponses[queryType as keyof typeof fallbackResponses] || fallbackResponses.other
-    );
-  }
-
-  /**
-   * Format individual recommendation details
-   */
-  private formatRecommendation(details: any): string {
-    try {
-      if (typeof details === 'string') {
-        return details;
-      }
-
-      if (details && typeof details === 'object') {
-        if (details.description) {
-          return details.description;
-        }
-
-        // Format transport recommendation
-        if (details.route || details.duration || details.cost) {
-          let formatted = '';
-          if (details.route) formatted += `Route: ${details.route} `;
-          if (details.duration) formatted += `(${details.duration}) `;
-          if (details.cost) formatted += `- Cost: ${details.cost}`;
-          return formatted.trim();
-        }
-
-        // Generic object formatting
-        return Object.entries(details)
-          .map(([key, value]) => `${key}: ${value}`)
-          .join(', ');
-      }
-
-      return String(details);
-    } catch (error) {
-      return 'Details unavailable';
-    }
-  }
-
-  /**
-   * Make HTTP request to ML service
-   */
-  private async makeRequest(endpoint: string, data: any): Promise<AxiosResponse> {
-    return axios.post(`${this.config.baseURL}${endpoint}`, data, {
-      timeout: this.config.timeout,
+    this.client = axios.create({
+      baseURL: this.baseUrl,
+      timeout: 10000,
       headers: {
         'Content-Type': 'application/json',
       },
     });
+
+    if (!this.isEnabled) {
+      logger.warn('ML Service is disabled');
+    }
   }
 
   /**
-   * Determine error status from axios error
+   * Predict best transport mode between two locations
    */
-  private determineErrorStatus(error: any): 'error' | 'timeout' | 'unavailable' {
-    if (error.code === 'ECONNABORTED' || error.message.includes('timeout')) {
-      return 'timeout';
+  async predictTransportMode(
+    request: TransportPredictionRequest
+  ): Promise<TransportPredictionResponse> {
+    if (!this.isEnabled) {
+      logger.warn('ML Service is disabled, returning default prediction');
+      return this.getDefaultPrediction(request);
     }
 
-    if (error.code === 'ECONNREFUSED' || error.code === 'ENOTFOUND') {
-      return 'unavailable';
-    }
+    try {
+      const response = await this.client.post('/api/predict/transport', request);
 
-    return 'error';
+      return {
+        predicted_mode: response.data.predicted_mode || 'mixed',
+        confidence: response.data.confidence || 0.5,
+        explanation: response.data.explanation,
+        alternatives: response.data.alternatives,
+      };
+    } catch (error) {
+      logger.error('Error calling ML service:', error);
+      return this.getDefaultPrediction(request);
+    }
   }
 
   /**
-   * Utility function to add delay
+   * Get route recommendations from ML model
    */
-  private delay(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
+  async getRouteRecommendations(
+    origin: { lat: number; lng: number },
+    destination: { lat: number; lng: number },
+    preferences?: {
+      budget?: 'low' | 'medium' | 'high';
+      time_preference?: 'fastest' | 'cheapest' | 'balanced';
+    }
+  ): Promise<{
+    recommended_routes: Array<{
+      transport_type: string;
+      score: number;
+      estimated_time: number;
+      estimated_cost: number;
+    }>;
+  }> {
+    if (!this.isEnabled) {
+      return { recommended_routes: [] };
+    }
+
+    try {
+      const response = await this.client.post('/api/recommend/routes', {
+        origin,
+        destination,
+        preferences,
+      });
+
+      return response.data;
+    } catch (error) {
+      logger.error('Error getting route recommendations:', error);
+      return { recommended_routes: [] };
+    }
+  }
+
+  /**
+   * Get default prediction when ML service is unavailable
+   */
+  private getDefaultPrediction(request: TransportPredictionRequest): TransportPredictionResponse {
+    // Simple heuristic-based prediction
+    let predictedMode: 'bus' | 'train' | 'mixed' = 'mixed';
+    let confidence = 0.5;
+    const factors: string[] = [];
+
+    // If distance is short (< 30km), prefer bus
+    if (request.distance_km < 30) {
+      predictedMode = 'bus';
+      confidence = 0.6;
+      factors.push('Short distance favors bus transport');
+    }
+    // If distance is long (> 100km), prefer train
+    else if (request.distance_km > 100) {
+      predictedMode = 'train';
+      confidence = 0.65;
+      factors.push('Long distance favors train transport');
+    }
+    // Medium distance, use mixed
+    else {
+      predictedMode = 'mixed';
+      confidence = 0.55;
+      factors.push('Medium distance - both options viable');
+    }
+
+    return {
+      predicted_mode: predictedMode,
+      confidence,
+      explanation: {
+        factors,
+        reasoning: 'Based on distance heuristics (ML service unavailable)',
+      },
+    };
+  }
+
+  /**
+   * Analyze travel patterns
+   */
+  async analyzeTravelPatterns(
+    userId: string,
+    limit: number = 10
+  ): Promise<{
+    common_routes: Array<{
+      origin: string;
+      destination: string;
+      frequency: number;
+    }>;
+    preferred_transport: string;
+    average_trip_distance: number;
+  } | null> {
+    if (!this.isEnabled) {
+      return null;
+    }
+
+    try {
+      const response = await this.client.get(`/api/analyze/patterns/${userId}`, {
+        params: { limit },
+      });
+
+      return response.data;
+    } catch (error) {
+      logger.error('Error analyzing travel patterns:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Get traffic predictions
+   */
+  async getTrafficPrediction(
+    route: {
+      origin: { lat: number; lng: number };
+      destination: { lat: number; lng: number };
+    },
+    departureTime: Date
+  ): Promise<{
+    predicted_duration: number;
+    traffic_level: 'low' | 'medium' | 'high';
+    confidence: number;
+  } | null> {
+    if (!this.isEnabled) {
+      return null;
+    }
+
+    try {
+      const response = await this.client.post('/api/predict/traffic', {
+        route,
+        departure_time: departureTime.toISOString(),
+      });
+
+      return response.data;
+    } catch (error) {
+      logger.error('Error getting traffic prediction:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Check if ML service is healthy
+   */
+  async healthCheck(): Promise<boolean> {
+    if (!this.isEnabled) {
+      return false;
+    }
+
+    try {
+      const response = await this.client.get('/health', { timeout: 5000 });
+      return response.status === 200;
+    } catch (error) {
+      logger.error('ML service health check failed:', error);
+      return false;
+    }
   }
 }

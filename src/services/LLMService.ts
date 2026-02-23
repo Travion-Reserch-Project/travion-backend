@@ -1,167 +1,344 @@
 import OpenAI from 'openai';
 import { logger } from '../config/logger';
 
-export interface TripExtraction {
-  origin?: string;
-  destination?: string;
-  departureDate?: string;
-  departureTime?: string;
-}
-
-export interface TripExtractionResult {
-  extracted: TripExtraction;
-  missingFields: string[];
-  raw: Record<string, any>;
+export interface LLMExtractionResult {
+  extracted: Record<string, string | undefined>;
+  raw: Record<string, unknown>;
+  missing_fields: string[];
 }
 
 export class LLMService {
-  private client: OpenAI;
+  private client: OpenAI | null;
   private model: string;
+  private apiKey: string;
 
-  constructor(
-    apiKey: string | undefined = process.env.OPENAI_API_KEY,
-    model: string = process.env.OPENAI_MODEL || 'gpt-4o-mini'
-  ) {
-    if (!apiKey) {
-      throw new Error('OPENAI_API_KEY is not configured');
+  constructor() {
+    this.apiKey = process.env.OPENAI_API_KEY || '';
+    if (!this.apiKey) {
+      logger.warn('OpenAI API key not configured');
+      this.client = null;
+    } else {
+      this.client = new OpenAI({
+        apiKey: this.apiKey,
+      });
     }
 
-    this.client = new OpenAI({ apiKey });
-    this.model = model;
-
-    logger.info('LLMService initialized', {
-      model: this.model,
-      apiKeyPresent: Boolean(apiKey),
-    });
+    this.model = process.env.OPENAI_MODEL || 'gpt-4-turbo-preview';
   }
 
-  async extractTripDetails(
-    message: string,
-    seed: TripExtraction = {},
-    expectedField?: string
-  ): Promise<TripExtractionResult> {
-    const completion = await this.client.chat.completions.create({
-      model: this.model,
-      temperature: 0,
-      response_format: { type: 'json_object' },
-      messages: [
-        {
-          role: 'system',
-          content: expectedField
-            ? `You extract structured travel details from user input. The user is specifically answering a question about: "${expectedField}". Return JSON with keys origin, destination, departure_date (YYYY-MM-DD format), departure_time (HH:MM 24-hour format). For the field "${expectedField}", extract the user's response carefully. For time: if user says "3:00pm" convert to "15:00", "2:30am" to "02:30", etc. Use null for unknown fields. Do not guess or hallucinate locations; keep exactly what user said.`
-            : 'You extract structured travel details. Return JSON with keys origin, destination, departure_date (YYYY-MM-DD format), departure_time (HH:MM 24-hour format). For time: if user says "3:00pm" convert to "15:00", "2:30am" to "02:30", etc. Use null for unknown fields. Do not guess or hallucinate locations; keep exactly what user said.',
-        },
-        {
-          role: 'user',
-          content: JSON.stringify({ message, defaults: seed }),
-        },
-      ],
-    });
-
-    const content = completion.choices[0]?.message?.content;
-    if (!content) {
-      throw new Error('No content returned from LLM');
+  /**
+   * Check if LLM service is available
+   */
+  private ensureConfigured(): void {
+    if (!this.client || !this.apiKey) {
+      throw new Error(
+        'OpenAI API key not configured. Please set OPENAI_API_KEY environment variable.'
+      );
     }
+  }
 
-    let parsed: Record<string, any>;
+  /**
+   * Generate text completion
+   */
+  async generateCompletion(
+    prompt: string,
+    maxTokens: number = 500,
+    temperature: number = 0.7
+  ): Promise<string> {
+    this.ensureConfigured();
     try {
-      parsed = JSON.parse(content);
+      const completion = await this.client!.chat.completions.create({
+        model: this.model,
+        messages: [
+          {
+            role: 'user',
+            content: prompt,
+          },
+        ],
+        max_tokens: maxTokens,
+        temperature,
+      });
+
+      return completion.choices[0]?.message?.content || '';
     } catch (error) {
-      throw new Error('Failed to parse LLM response');
+      logger.error('Error generating completion:', error);
+      throw error;
     }
-
-    const extracted: TripExtraction = {
-      origin: this.normalizeValue(parsed.origin) || seed.origin,
-      destination: this.normalizeValue(parsed.destination) || seed.destination,
-      departureDate: this.normalizeValue(parsed.departure_date) || seed.departureDate,
-      departureTime: this.normalizeValue(parsed.departure_time) || seed.departureTime,
-    };
-
-    const missingFields = ['origin', 'destination', 'departureDate', 'departureTime'].filter(
-      (field) => !(extracted as any)[field]
-    );
-
-    return {
-      extracted,
-      missingFields,
-      raw: parsed,
-    };
   }
 
-  private normalizeValue(value: any): string | undefined {
+  /**
+   * Generate completion with system prompt
+   */
+  async generateCompletionWithSystem(
+    systemPrompt: string,
+    userPrompt: string,
+    maxTokens: number = 500,
+    temperature: number = 0.7
+  ): Promise<string> {
+    this.ensureConfigured();
+    try {
+      const completion = await this.client!.chat.completions.create({
+        model: this.model,
+        messages: [
+          {
+            role: 'system',
+            content: systemPrompt,
+          },
+          {
+            role: 'user',
+            content: userPrompt,
+          },
+        ],
+        max_tokens: maxTokens,
+        temperature,
+      });
+
+      return completion.choices[0]?.message?.content || '';
+    } catch (error) {
+      logger.error('Error generating completion with system:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Extract structured fields from query
+   */
+  async extractFieldsFromQuery(
+    query: string,
+    fields: string[],
+    contextPrompt?: string
+  ): Promise<LLMExtractionResult> {
+    this.ensureConfigured();
+    try {
+      const systemPrompt = `You are a data extraction assistant. Extract the following fields from the user's query: ${fields.join(', ')}.
+Return a JSON object with the extracted values. If a field is not found, set it to null.
+Only return the JSON object, no other text.
+
+Example format:
+{
+  "origin": "Nugegoda",
+  "destination": "Embilipitiya",
+  "transport_type": "any"
+}`;
+
+      const userPrompt = contextPrompt
+        ? `${contextPrompt}\n\nQuery: ${query}\n\nExtract: ${fields.join(', ')}`
+        : `Query: ${query}\n\nExtract: ${fields.join(', ')}`;
+
+      const completion = await this.client!.chat.completions.create({
+        model: this.model,
+        messages: [
+          {
+            role: 'system',
+            content: systemPrompt,
+          },
+          {
+            role: 'user',
+            content: userPrompt,
+          },
+        ],
+        max_tokens: 300,
+        temperature: 0.3,
+        response_format: { type: 'json_object' },
+      });
+
+      const responseText = completion.choices[0]?.message?.content || '{}';
+      const parsed: Record<string, unknown> = JSON.parse(responseText);
+
+      const extracted: Record<string, string | undefined> = {};
+      const missingFields: string[] = [];
+
+      fields.forEach((field) => {
+        const value = this.normalizeValue(parsed[field]);
+        extracted[field] = value;
+        if (!value) {
+          missingFields.push(field);
+        }
+      });
+
+      return {
+        extracted,
+        raw: parsed,
+        missing_fields: missingFields,
+      };
+    } catch (error) {
+      logger.error('Error extracting fields:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Normalize extracted value
+   */
+  private normalizeValue(value: unknown): string | undefined {
     if (value === null || value === undefined) return undefined;
     if (typeof value === 'string') {
       const trimmed = value.trim();
-      return trimmed.length > 0 ? trimmed : undefined;
+      return trimmed.toLowerCase() === 'null' || trimmed === '' ? undefined : trimmed;
     }
     return String(value);
   }
 
-  async generateFollowUpQuestion(
-    extracted: TripExtraction,
-    missingFields: string[]
-  ): Promise<string> {
-    const friendlyLabels: Record<string, string> = {
-      origin: 'starting location',
-      destination: 'destination',
-      departureDate: 'travel date (YYYY-MM-DD)',
-      departureTime: 'travel time (HH:MM 24h)',
-    };
+  /**
+   * Classify intent from text
+   */
+  async classifyIntent(
+    text: string,
+    possibleIntents: string[]
+  ): Promise<{ intent: string; confidence: number }> {
+    this.ensureConfigured();
+    try {
+      const systemPrompt = `You are an intent classifier. Classify the user's message into one of these intents: ${possibleIntents.join(', ')}.
+Return a JSON object with "intent" and "confidence" (0-1).
 
-    const completion = await this.client.chat.completions.create({
-      model: this.model,
-      temperature: 0.3,
-      messages: [
+Example:
+{
+  "intent": "route_query",
+  "confidence": 0.95
+}`;
+
+      const completion = await this.client!.chat.completions.create({
+        model: this.model,
+        messages: [
+          {
+            role: 'system',
+            content: systemPrompt,
+          },
+          {
+            role: 'user',
+            content: text,
+          },
+        ],
+        max_tokens: 100,
+        temperature: 0.3,
+        response_format: { type: 'json_object' },
+      });
+
+      const responseText = completion.choices[0]?.message?.content || '{}';
+      const parsed = JSON.parse(responseText);
+
+      return {
+        intent: parsed.intent || 'unknown',
+        confidence: parsed.confidence || 0.5,
+      };
+    } catch (error) {
+      logger.error('Error classifying intent:', error);
+      return { intent: 'unknown', confidence: 0.5 };
+    }
+  }
+
+  /**
+   * Generate chat response with conversation context
+   */
+  async generateChatResponse(
+    systemPrompt: string,
+    conversationHistory: Array<{ role: 'user' | 'assistant'; content: string }>,
+    userMessage: string
+  ): Promise<string> {
+    this.ensureConfigured();
+    try {
+      const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
         {
           role: 'system',
-          content: `You are Travion, a warm, intelligent, and highly capable travel assistant. Your mission is to help users plan their journeys effortlessly. Follow these guidelines:
-
-TONE & PERSONALITY:
-- Be genuinely friendly, encouraging, and helpful
-- Use conversational language (not robotic)
-- Show enthusiasm about their travel plans
-- Make users feel heard and understood
-
-GREETING LOGIC:
-- If extracting has 0-1 fields filled (e.g., user just said "hi", "hey", "help"), greet warmly as Travion and ask ONE smart question
-- Example greeting: "Hi there! I'm Travion, your travel companion. To find the best options for you, could you tell me where you're traveling from?"
-- Only include greeting when very little is known; otherwise skip it
-
-QUESTION GENERATION (Multi-turn):
-- Ask ONE focused, natural question per turn
-- Prioritize by importance: Origin → Destination → Date → Time
-- Reference known info to feel personalized: "Since you're heading to [destination], what date works best?"
-- Make questions specific and scannable (include format hints in parentheses when necessary)
-- Avoid asking for info already provided
-
-CONTEXT AWARENESS:
-- If origin is Sri Lankan city, suggest common destinations intelligently
-- If time is missing and date is provided, ask for time: "What time would you prefer to depart on [date]?"
-- If only one field is missing, acknowledge progress: "Great! Just one more thing—what time works for you?"
-- Adapt language based on what's known (less formal greeting if some details exist)
-
-EFFICIENCY:
-- Keep questions short (1-2 sentences max)
-- Be direct and clear
-- Avoid unnecessary elaboration
-- Guide users toward completion without making them feel rushed
-
-OUTPUT:
-- Return ONLY the question (with brief greeting if starting fresh)
-- No extra text, explanations, or follow-ups
-- Ensure the question is immediately actionable`,
+          content: systemPrompt,
         },
-        {
-          role: 'user',
-          content: JSON.stringify({ extracted, missingFields, labels: friendlyLabels }),
-        },
-      ],
-    });
+      ];
 
-    const question = completion.choices[0]?.message?.content?.trim();
-    if (!question) {
-      throw new Error('No follow-up question generated');
+      // Add conversation history
+      conversationHistory.forEach((msg) => {
+        messages.push({
+          role: msg.role,
+          content: msg.content,
+        });
+      });
+
+      // Add current user message
+      messages.push({
+        role: 'user',
+        content: userMessage,
+      });
+
+      const completion = await this.client!.chat.completions.create({
+        model: this.model,
+        messages,
+        max_tokens: 800,
+        temperature: 0.7,
+      });
+
+      return completion.choices[0]?.message?.content || '';
+    } catch (error) {
+      logger.error('Error generating chat response:', error);
+      throw error;
     }
-    return question;
+  }
+
+  /**
+   * Summarize conversation
+   */
+  async summarizeConversation(messages: string[]): Promise<string> {
+    this.ensureConfigured();
+    try {
+      const conversation = messages.join('\n');
+
+      const systemPrompt = `Summarize this conversation concisely (max 100 words). Focus on the main query and outcome.`;
+
+      const completion = await this.client!.chat.completions.create({
+        model: this.model,
+        messages: [
+          {
+            role: 'system',
+            content: systemPrompt,
+          },
+          {
+            role: 'user',
+            content: conversation,
+          },
+        ],
+        max_tokens: 150,
+        temperature: 0.5,
+      });
+
+      return completion.choices[0]?.message?.content || 'No summary available';
+    } catch (error) {
+      logger.error('Error summarizing conversation:', error);
+      return 'Summary unavailable';
+    }
+  }
+
+  /**
+   * Translate text
+   */
+  async translate(text: string, targetLanguage: 'si' | 'ta' | 'en'): Promise<string> {
+    this.ensureConfigured();
+    try {
+      const languageNames = {
+        si: 'Sinhala',
+        ta: 'Tamil',
+        en: 'English',
+      };
+
+      const systemPrompt = `Translate the following text to ${languageNames[targetLanguage]}. Return only the translation.`;
+
+      const completion = await this.client!.chat.completions.create({
+        model: this.model,
+        messages: [
+          {
+            role: 'system',
+            content: systemPrompt,
+          },
+          {
+            role: 'user',
+            content: text,
+          },
+        ],
+        max_tokens: 500,
+        temperature: 0.3,
+      });
+
+      return completion.choices[0]?.message?.content || text;
+    } catch (error) {
+      logger.error('Error translating text:', error);
+      return text;
+    }
   }
 }
