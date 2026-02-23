@@ -7,20 +7,20 @@ import hpp from 'hpp';
 import morgan from 'morgan';
 import cookieParser from 'cookie-parser';
 import 'express-async-errors';
-import config from './config/config';
-import { connectDatabase } from './config/database';
-import { logger, stream } from './config/logger';
-import { errorHandler, notFoundHandler } from './middleware/errorHandler';
-import { requestLogger, responseLogger } from './middleware/logger';
-import routes from './routes';
-import { apiLimiter, authLimiter } from './config/rateLimiter';
+import config from './shared/config/config';
+import { connectDatabase } from './shared/config/database';
+import { logger, stream } from './shared/config/logger';
+import { errorHandler, notFoundHandler } from './shared/middleware/errorHandler';
+import { requestLogger, responseLogger } from './shared/middleware/logger';
+import routes from './shared/routes';
+import { apiLimiter, authLimiter } from './shared/config/rateLimiter';
 import {
   helmetConfig,
   corsConfig,
   bodyParserConfig,
   mongoSanitizeConfig,
   hppWhitelist,
-} from './config/security';
+} from './shared/config/security';
 
 class App {
   public app: Application;
