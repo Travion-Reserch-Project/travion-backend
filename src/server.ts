@@ -1,6 +1,6 @@
 import App from './app';
-import { logger } from './config/logger';
-import { loadInfisicalSecrets } from './config/infisical';
+import { logger } from './shared/config/logger';
+import { loadInfisicalSecrets } from './shared/config/infisical';
 
 async function startServer() {
   try {
