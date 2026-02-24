@@ -5,6 +5,7 @@ import authRoutes from './authRoutes';
 import userRoutes from './userRoutes';
 import { chatRoutes } from './chatRoutes';
 import { safetyRoutes } from './safetyRoutes';
+import { incidentReportRoutes } from './incidentReportRoutes';
 
 const router = Router();
 
@@ -31,5 +32,6 @@ router.use('/auth', authRoutes);
 router.use('/users', userRoutes);
 router.use('/chat', chatRoutes);
 router.use('/safety', safetyRoutes);
+router.use('/incidents', incidentReportRoutes);
 
 export default router;

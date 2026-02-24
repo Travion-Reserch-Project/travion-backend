@@ -1,8 +1,10 @@
 import axios from 'axios';
 import config from '../config/config';
 import { SafetyRepository } from '../repositories/SafetyRepository';
+import { IncidentReportRepository } from '../repositories/IncidentReportRepository';
 import { GoogleMapsService, LocationFeatures } from './GoogleMapsService';
 import { ISafetyAlert } from '../models/SafetyAlert';
+import { IIncidentReport } from '../models/IncidentReport';
 import mongoose from 'mongoose';
 
 // ML Model Input Interface (11 features - matches ML model schema)
@@ -41,7 +43,8 @@ export interface SafetyAlert {
     | 'Money Theft'
     | 'Harassment'
     | 'Bag Snatching'
-    | 'Extortion';
+    | 'Extortion'
+    | 'Other';
 }
 
 // Main Response Interface
@@ -62,11 +65,13 @@ export interface SafetyPredictionResponse {
 
 export class SafetyService {
   private readonly safetyRepository: SafetyRepository;
+  private readonly incidentReportRepository: IncidentReportRepository;
   private readonly googleMapsService: GoogleMapsService;
   private readonly mlApiUrl: string;
 
   constructor() {
     this.safetyRepository = new SafetyRepository();
+    this.incidentReportRepository = new IncidentReportRepository();
     this.googleMapsService = new GoogleMapsService();
     this.mlApiUrl = config.mlServices.safetyApiUrl;
   }
@@ -171,6 +176,8 @@ export class SafetyService {
    */
   private async callMLModel(input: MLModelInput): Promise<RiskPrediction[]> {
     try {
+      console.log(`[Safety] Calling ML service at: ${this.mlApiUrl}/predict`);
+
       // ML service expects nested structure: { features: {...} }
       const requestBody = {
         features: input,
@@ -185,7 +192,8 @@ export class SafetyService {
       console.log('[Safety] ML model response:', JSON.stringify(response.data, null, 2));
 
       if (!response.data || !response.data.prediction) {
-        throw new Error('Invalid response from ML model');
+        console.warn('[Safety] Invalid ML response, using fallback predictions');
+        return this.getFallbackPredictions();
       }
 
       // Transform ML model output
@@ -194,10 +202,40 @@ export class SafetyService {
       return transformed;
     } catch (error) {
       if (axios.isAxiosError(error)) {
-        throw new Error(`ML model error: ${error.response?.data?.message || error.message}`);
+        if (error.code === 'ECONNREFUSED') {
+          console.error('[Safety] ML service not running at', this.mlApiUrl);
+          console.warn('[Safety] Using fallback predictions - ML service unavailable');
+          return this.getFallbackPredictions();
+        }
+        if (error.code === 'ETIMEDOUT' || error.code === 'ECONNABORTED') {
+          console.error('[Safety] ML service timeout');
+          console.warn('[Safety] Using fallback predictions - ML service timeout');
+          return this.getFallbackPredictions();
+        }
+        console.error('[Safety] ML API error:', error.response?.data || error.message);
+        console.warn('[Safety] Using fallback predictions due to error');
+        return this.getFallbackPredictions();
       }
-      throw error;
+      console.error('[Safety] Unexpected error calling ML service:', error);
+      return this.getFallbackPredictions();
     }
+  }
+
+  /**
+   * Get fallback predictions when ML service is unavailable
+   * Returns moderate-low risk for all incident types
+   */
+  private getFallbackPredictions(): RiskPrediction[] {
+    console.log('[Safety] Generating fallback predictions (ML service unavailable)');
+    return [
+      { incidentType: 'Scam', riskLevel: 'low', confidence: 0.3 },
+      { incidentType: 'Pickpocket', riskLevel: 'low', confidence: 0.3 },
+      { incidentType: 'Theft', riskLevel: 'low', confidence: 0.3 },
+      { incidentType: 'Money Theft', riskLevel: 'low', confidence: 0.3 },
+      { incidentType: 'Harassment', riskLevel: 'low', confidence: 0.3 },
+      { incidentType: 'Bag Snatching', riskLevel: 'low', confidence: 0.3 },
+      { incidentType: 'Extortion', riskLevel: 'low', confidence: 0.3 },
+    ];
   }
 
   /**
@@ -331,5 +369,250 @@ export class SafetyService {
     } catch (error) {
       return { status: 'unhealthy', lastCheck: new Date() };
     }
+  }
+
+  /**
+   * Get nearby user-reported incidents and transform them to alert format
+   * These are real incidents reported by other users in the area
+   */
+  async getUserReportedIncidents(
+    latitude: number,
+    longitude: number,
+    radiusInKm = 5,
+    limit = 20
+  ): Promise<SafetyAlert[]> {
+    try {
+      console.log(`[Safety] Fetching user-reported incidents near: ${latitude}, ${longitude}`);
+
+      // Fetch verified/pending incidents from database (exclude rejected)
+      const incidents = await this.incidentReportRepository.findRecentByLocation(
+        latitude,
+        longitude,
+        radiusInKm,
+        limit
+      );
+
+      console.log(`[Safety] Found ${incidents.length} user-reported incidents`);
+
+      // Transform incidents to alert format
+      const alerts = incidents.map((incident, index) =>
+        this.transformIncidentToAlert(incident, index)
+      );
+
+      return alerts;
+    } catch (error) {
+      console.error('[Safety] Error fetching user-reported incidents:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Transform incident report to safety alert format
+   */
+  private transformIncidentToAlert(incident: IIncidentReport, index: number): SafetyAlert {
+    const riskLevel = this.calculateIncidentRiskLevel(incident.incidentTime);
+    const protectionAdvice = this.generateIncidentProtectionDescription(incident.incidentType);
+
+    // Map incident type to standard format (handle variations)
+    const standardIncidentType = this.mapIncidentType(incident.incidentType);
+
+    // Calculate time ago
+    const timeAgo = this.getTimeAgo(incident.incidentTime);
+
+    return {
+      id: `incident-${incident._id || index}`,
+      title: `Reported ${timeAgo}`, // Simple title - UI will prepend incident type and severity
+      description: protectionAdvice,
+      level: riskLevel,
+      location: incident.location.address,
+      incidentType: standardIncidentType,
+    };
+  }
+
+  /**
+   * Calculate risk level based on how recent the incident is
+   */
+  private calculateIncidentRiskLevel(incidentTime: Date): 'low' | 'medium' | 'high' {
+    const now = new Date();
+    const hoursAgo = (now.getTime() - new Date(incidentTime).getTime()) / (1000 * 60 * 60);
+
+    if (hoursAgo <= 24) {
+      // Last 24 hours - HIGH risk
+      return 'high';
+    } else if (hoursAgo <= 168) {
+      // Last 7 days - MEDIUM risk
+      return 'medium';
+    } else {
+      // Older than 7 days - LOW risk
+      return 'low';
+    }
+  }
+
+  /**
+   * Generate protection advice for each incident type
+   */
+  private generateIncidentProtectionDescription(incidentType: string): string {
+    const protectionAdvice: Record<string, string> = {
+      Pickpocketing:
+        'An incident was reported here. Keep valuables in front pockets and stay alert in crowds. Hold bags firmly.',
+      'Bag Snatching':
+        'Bag snatching reported in this area. Keep bags close to your body and avoid displaying valuables.',
+      Scam: 'Scam activity reported. Verify credentials before any transactions. Avoid deals that seem too good to be true.',
+      'Money Theft':
+        'Money theft reported nearby. Avoid carrying large amounts of cash. Use secure payment methods when possible.',
+      Harassment:
+        'Harassment incident reported. Stay in well-lit areas and with groups when possible. Contact authorities if needed.',
+      Extortion:
+        'Extortion reported in this area. Report any suspicious demands to authorities immediately. Stay in public areas.',
+      Theft:
+        'Theft reported nearby. Secure valuable items and avoid leaving belongings unattended. Stay vigilant.',
+      Other:
+        'An incident was reported in this area. Stay alert and follow general safety precautions.',
+    };
+
+    return protectionAdvice[incidentType] || 'Stay alert and be cautious in this area.';
+  }
+
+  /**
+   * Map incident type to standard format
+   */
+  private mapIncidentType(
+    type: string
+  ):
+    | 'Scam'
+    | 'Pickpocket'
+    | 'Theft'
+    | 'Money Theft'
+    | 'Harassment'
+    | 'Bag Snatching'
+    | 'Extortion'
+    | 'Other' {
+    // Map Pickpocketing -> Pickpocket
+    if (type === 'Pickpocketing') return 'Pickpocket';
+
+    // Return as is if it matches our standard types
+    const validTypes = [
+      'Scam',
+      'Pickpocket',
+      'Theft',
+      'Money Theft',
+      'Harassment',
+      'Bag Snatching',
+      'Extortion',
+      'Other',
+    ];
+    if (validTypes.includes(type)) {
+      return type as any;
+    }
+
+    // Default to Other for unknown types
+    return 'Other';
+  }
+
+  /**
+   * Calculate human-readable time ago
+   */
+  private getTimeAgo(date: Date): string {
+    const now = new Date();
+    const secondsAgo = Math.floor((now.getTime() - new Date(date).getTime()) / 1000);
+
+    if (secondsAgo < 60) return 'just now';
+    if (secondsAgo < 3600) return `${Math.floor(secondsAgo / 60)} min ago`;
+    if (secondsAgo < 86400) return `${Math.floor(secondsAgo / 3600)} hours ago`;
+    if (secondsAgo < 604800) return `${Math.floor(secondsAgo / 86400)} days ago`;
+    return `${Math.floor(secondsAgo / 604800)} weeks ago`;
+  }
+
+  /**
+   * Run comprehensive network diagnostics
+   * Tests: MongoDB, Google Maps API, ML Service
+   */
+  async runDiagnostics(): Promise<any> {
+    const results = {
+      mongodb: { status: 'unknown', message: '' },
+      googleMaps: { status: 'unknown', message: '', apiKey: '' },
+      mlService: { status: 'unknown', message: '', url: this.mlApiUrl },
+      timestamp: new Date().toISOString(),
+    };
+
+    // Test 1: MongoDB (check if already connected)
+    try {
+      const mongoose = require('mongoose');
+      if (mongoose.connection.readyState === 1) {
+        results.mongodb.status = 'connected';
+        results.mongodb.message = 'MongoDB is connected';
+      } else {
+        results.mongodb.status = 'disconnected';
+        results.mongodb.message = 'MongoDB is not connected';
+      }
+    } catch (error) {
+      results.mongodb.status = 'error';
+      results.mongodb.message = (error as Error).message;
+    }
+
+    // Test 2: Google Maps API (simple geocode test)
+    try {
+      const testLat = 6.9271; // Colombo, Sri Lanka
+      const testLon = 79.8612;
+      results.googleMaps.apiKey = `${config.googleMaps.apiKey.substring(0, 10)}...`;
+
+      const response = await axios.get('https://maps.googleapis.com/maps/api/geocode/json', {
+        params: {
+          latlng: `${testLat},${testLon}`,
+          key: config.googleMaps.apiKey,
+        },
+        timeout: 8000,
+      });
+
+      if (response.data.status === 'OK') {
+        results.googleMaps.status = 'working';
+        results.googleMaps.message = 'Google Maps API is accessible and working';
+      } else if (response.data.status === 'REQUEST_DENIED') {
+        results.googleMaps.status = 'error';
+        results.googleMaps.message = 'API key invalid or API not enabled';
+      } else if (response.data.status === 'OVER_QUERY_LIMIT') {
+        results.googleMaps.status = 'error';
+        results.googleMaps.message = 'API quota exceeded';
+      } else {
+        results.googleMaps.status = 'error';
+        results.googleMaps.message = `API returned status: ${response.data.status}`;
+      }
+    } catch (error: any) {
+      results.googleMaps.status = 'error';
+      if (error.code === 'ENOTFOUND' || error.code === 'EAI_AGAIN') {
+        results.googleMaps.message =
+          'Network error: Cannot reach Google Maps API (DNS resolution failed)';
+      } else if (error.code === 'ETIMEDOUT') {
+        results.googleMaps.message = 'Request timeout - network may be slow or blocking API';
+      } else {
+        results.googleMaps.message = error.message || 'Unknown error';
+      }
+    }
+
+    // Test 3: ML Service
+    try {
+      const response = await axios.get(`${this.mlApiUrl}/health`, {
+        timeout: 5000,
+      });
+
+      if (response.status === 200) {
+        results.mlService.status = 'working';
+        results.mlService.message = 'ML Safety service is running';
+      } else {
+        results.mlService.status = 'error';
+        results.mlService.message = `Service returned status: ${response.status}`;
+      }
+    } catch (error: any) {
+      results.mlService.status = 'error';
+      if (error.code === 'ECONNREFUSED') {
+        results.mlService.message = 'ML service not running (connection refused)';
+      } else if (error.code === 'ETIMEDOUT') {
+        results.mlService.message = 'ML service timeout';
+      } else {
+        results.mlService.message = error.message || 'Unknown error';
+      }
+    }
+
+    return results;
   }
 }
