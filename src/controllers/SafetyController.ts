@@ -165,6 +165,70 @@ export class SafetyController {
   };
 
   /**
+   * Get nearby user-reported incidents
+   * Returns real incidents reported by other users in the area
+   * Requires authentication to view
+   */
+  getNearbyIncidents = async (
+    req: AuthRequest,
+    res: Response,
+    _next: NextFunction
+  ): Promise<void> => {
+    try {
+      // Check authentication
+      const userId = req.user?.userId;
+      if (!userId) {
+        res.status(401).json({
+          success: false,
+          error: { message: 'Authentication required to view nearby incidents' },
+        });
+        return;
+      }
+
+      const { latitude, longitude, radius, limit } = req.query;
+
+      if (!latitude || !longitude) {
+        res.status(400).json({
+          success: false,
+          error: { message: 'Latitude and longitude are required' },
+        });
+        return;
+      }
+
+      // Validate coordinates
+      const lat = parseFloat(latitude as string);
+      const lon = parseFloat(longitude as string);
+
+      if (lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+        res.status(400).json({
+          success: false,
+          error: { message: 'Invalid coordinates' },
+        });
+        return;
+      }
+
+      const incidents = await this.safetyService.getUserReportedIncidents(
+        lat,
+        lon,
+        radius ? parseFloat(radius as string) : 5,
+        limit ? parseInt(limit as string) : 20
+      );
+
+      res.status(200).json({
+        success: true,
+        data: incidents,
+        count: incidents.length,
+      });
+    } catch (error) {
+      console.error('[SafetyController] Error getting nearby incidents:', error);
+      res.status(500).json({
+        success: false,
+        error: { message: (error as Error).message || 'Failed to get nearby incidents' },
+      });
+    }
+  };
+
+  /**
    * Health check for safety ML service
    */
   healthCheck = async (_req: AuthRequest, res: Response, _next: NextFunction): Promise<void> => {
@@ -180,6 +244,26 @@ export class SafetyController {
       res.status(500).json({
         success: false,
         error: { message: (error as Error).message || 'Health check failed' },
+      });
+    }
+  };
+
+  /**
+   * Network diagnostics to troubleshoot connectivity issues
+   */
+  diagnostics = async (_req: AuthRequest, res: Response, _next: NextFunction): Promise<void> => {
+    try {
+      const diagnostics = await this.safetyService.runDiagnostics();
+
+      res.status(200).json({
+        success: true,
+        diagnostics,
+        timestamp: new Date().toISOString(),
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: { message: (error as Error).message || 'Diagnostics failed' },
       });
     }
   };

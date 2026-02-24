@@ -76,9 +76,38 @@ router.get(
 );
 
 /**
+ * GET /api/v1/safety/nearby-incidents
+ * Get nearby user-reported incidents (requires authentication)
+ * Returns real incidents reported by other users in the area
+ * All reports are anonymous - reporter info not included
+ */
+router.get(
+  '/nearby-incidents',
+  authenticate as any,
+  apiLimiter,
+  [
+    query('latitude').isFloat({ min: -90, max: 90 }).withMessage('Invalid latitude'),
+    query('longitude').isFloat({ min: -180, max: 180 }).withMessage('Invalid longitude'),
+    query('radius')
+      .optional()
+      .isFloat({ min: 0.1, max: 100 })
+      .withMessage('Radius must be 0.1-100 km'),
+    query('limit').optional().isInt({ min: 1, max: 50 }).withMessage('Limit must be 1-50'),
+  ],
+  safetyController.getNearbyIncidents
+);
+
+/**
  * GET /api/v1/safety/health
  * Check health of Safety ML service
  */
 router.get('/health', safetyController.healthCheck);
+
+/**
+ * GET /api/v1/safety/diagnostics
+ * Run network diagnostics for troubleshooting
+ * Tests: MongoDB, Google Maps API, ML Service connectivity
+ */
+router.get('/diagnostics', safetyController.diagnostics);
 
 export { router as safetyRoutes };

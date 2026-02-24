@@ -101,15 +101,30 @@ export class GoogleMapsService {
     longitude: number
   ): Promise<{ address: string; locationName: string }> {
     try {
+      console.log(`[GoogleMaps] Reverse geocoding: ${latitude}, ${longitude}`);
+
       const response = await axios.get(`${this.baseUrl}/geocode/json`, {
         params: {
           latlng: `${latitude},${longitude}`,
           key: this.apiKey,
         },
+        timeout: 10000, // 10 second timeout
       });
 
+      console.log(`[GoogleMaps] Response status: ${response.data.status}`);
+
+      if (response.data.status === 'REQUEST_DENIED') {
+        throw new Error(
+          'Google Maps API key invalid or API not enabled. Check your GOOGLE_MAPS_API_KEY.'
+        );
+      }
+
+      if (response.data.status === 'OVER_QUERY_LIMIT') {
+        throw new Error('Google Maps API quota exceeded. Try again later.');
+      }
+
       if (response.data.status !== 'OK' || !response.data.results.length) {
-        throw new Error('Failed to reverse geocode location');
+        throw new Error(`Geocoding failed with status: ${response.data.status}`);
       }
 
       const result = response.data.results[0];
@@ -121,8 +136,20 @@ export class GoogleMapsService {
           (comp: any) => comp.types.includes('locality') || comp.types.includes('sublocality')
         )?.long_name || address.split(',')[0];
 
+      console.log(`[GoogleMaps] Geocoded to: ${locationName}, ${address}`);
       return { address, locationName };
     } catch (error) {
+      if (axios.isAxiosError(error)) {
+        if (error.code === 'ENOTFOUND' || error.code === 'EAI_AGAIN') {
+          throw new Error(
+            'Network error: Cannot reach Google Maps API. Check your internet connection.'
+          );
+        }
+        if (error.code === 'ETIMEDOUT' || error.code === 'ECONNABORTED') {
+          throw new Error('Google Maps API request timeout. Please try again.');
+        }
+        throw new Error(`Network error calling Google Maps: ${error.message}`);
+      }
       throw new Error(`Reverse geocode failed: ${(error as Error).message}`);
     }
   }
