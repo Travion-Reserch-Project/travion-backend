@@ -30,6 +30,6 @@ router.get('/health', (_req, res) => {
 router.use('/auth', authRoutes);
 router.use('/users', userRoutes);
 router.use('/chat', chatRoutes);
-router.use('/health', healthRoutes);
+router.use('/healthProfile', healthRoutes);
 
 export default router;
