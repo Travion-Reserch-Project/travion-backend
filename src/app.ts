@@ -51,6 +51,11 @@ class App {
       })
     );
 
+    this.app.use((req, _res, next) => {
+      logger.info(`[API REQUEST] ${req.method} ${req.originalUrl}`);
+      next();
+    });
+
     // Body parser with size limits - MOVED BEFORE rate limiting
     this.app.use(express.json({ limit: bodyParserConfig.jsonLimit }));
     this.app.use(
