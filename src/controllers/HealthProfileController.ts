@@ -1,13 +1,18 @@
 import { Request, Response } from 'express';
 import UserHealthProfile from '../models/HealthProfile';
 
-// CREATE health profile
+// CREATE or UPDATE health profile (upsert)
 export const createHealthProfile = async (req: Request, res: Response) => {
   try {
-    const profile = await UserHealthProfile.create(req.body);
-    res.status(201).json(profile);
+    const { userId, ...profileData } = req.body;
+    const profile = await UserHealthProfile.findOneAndUpdate(
+      { userId },
+      { userId, ...profileData },
+      { upsert: true, new: true, runValidators: true }
+    );
+    return res.status(201).json(profile);
   } catch (error: any) {
-    res.status(400).json({ message: error.message });
+    return res.status(400).json({ message: error.message });
   }
 };
 
@@ -22,9 +27,9 @@ export const getHealthProfileByUserId = async (req: Request, res: Response) => {
       return res.status(404).json({ message: 'Health profile not found' });
     }
 
-    res.status(200).json(profile);
+    return res.status(200).json(profile);
   } catch (error: any) {
-    res.status(500).json({ message: error.message });
+    return res.status(500).json({ message: error.message });
   }
 };
 
@@ -39,9 +44,9 @@ export const updateHealthProfile = async (req: Request, res: Response) => {
       return res.status(404).json({ message: 'Health profile not found' });
     }
 
-    res.status(200).json(profile);
+    return res.status(200).json(profile);
   } catch (error: any) {
-    res.status(400).json({ message: error.message });
+    return res.status(400).json({ message: error.message });
   }
 };
 
@@ -70,9 +75,9 @@ export const updateSkinTypeWithHistory = async (req: Request, res: Response) => 
 
     await profile.save();
 
-    res.status(200).json(profile);
+    return res.status(200).json(profile);
   } catch (error: any) {
-    res.status(400).json({ message: error.message });
+    return res.status(400).json({ message: error.message });
   }
 };
 
@@ -87,8 +92,8 @@ export const deleteHealthProfile = async (req: Request, res: Response) => {
       return res.status(404).json({ message: 'Health profile not found' });
     }
 
-    res.status(200).json({ message: 'Health profile deleted successfully' });
+    return res.status(200).json({ message: 'Health profile deleted successfully' });
   } catch (error: any) {
-    res.status(500).json({ message: error.message });
+    return res.status(500).json({ message: error.message });
   }
 };
