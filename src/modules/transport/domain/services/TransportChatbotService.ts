@@ -451,8 +451,8 @@ Return JSON with: intent, origin, destination, transport_type`;
       }
 
       // Validate and find locations
-      let originCity = await this.transportService.findCity({ cityName: origin });
-      let destCity = await this.transportService.findCity({ cityName: destination });
+      const originCity = await this.transportService.findCity({ cityName: origin });
+      const destCity = await this.transportService.findCity({ cityName: destination });
 
       // If cities not found in DB, try geocoding with Google Maps
       let originCoords: { lat: number; lng: number } | null = null;
@@ -835,10 +835,11 @@ Return JSON with: intent, origin, destination, transport_type`;
       };
     }
 
-    const weather = await this.weatherService.getCurrentWeather(
-      city.location.coordinates[1],
-      city.location.coordinates[0]
-    );
+    // Extract lat/lon from GeoJSON coordinates [longitude, latitude]
+    const latitude = city.location.coordinates[1];
+    const longitude = city.location.coordinates[0];
+
+    const weather = await this.weatherService.getCurrentWeather(latitude, longitude);
 
     if (!weather) {
       return {
