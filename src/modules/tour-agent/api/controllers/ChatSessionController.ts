@@ -30,8 +30,7 @@ export class ChatSessionController {
       }
 
       const { title, context } = req.body;
-      const session = await this.chatService.createSession({
-        userId: req.user.userId,
+      const session = await this.chatService.createSession(req.user.userId, {
         title,
         context,
       });
@@ -153,7 +152,7 @@ export class ChatSessionController {
         throw new AppError('Unauthorized', 401);
       }
 
-      const { message, context } = req.body;
+      const { message } = req.body;
       if (!message || message.trim().length === 0) {
         throw new AppError('Message is required', 400);
       }
@@ -161,8 +160,7 @@ export class ChatSessionController {
       const result = await this.chatService.sendMessage(
         req.params.sessionId,
         req.user.userId,
-        message,
-        context
+        message
       );
 
       res.status(200).json({
@@ -207,8 +205,7 @@ export class ChatSessionController {
       const result = await this.chatService.sendMessage(
         session.sessionId,
         req.user.userId,
-        message,
-        context
+        message
       );
 
       res.status(200).json({

@@ -12,7 +12,6 @@ import type {
   // Chat
   ChatRequest,
   ChatResponse,
-  LocationChatRequest,
   // Tour Plan
   TourPlanGenerateRequest,
   TourPlanResponse,

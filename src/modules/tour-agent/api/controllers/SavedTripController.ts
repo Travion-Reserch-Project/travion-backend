@@ -29,10 +29,7 @@ export class SavedTripController {
         throw new AppError('Unauthorized', 401);
       }
 
-      const trip = await this.tripService.createTrip({
-        userId: req.user.userId,
-        ...req.body,
-      });
+      const trip = await this.tripService.createTrip(req.user.userId, req.body);
 
       res.status(201).json({
         success: true,
@@ -85,7 +82,7 @@ export class SavedTripController {
         throw new AppError('Unauthorized', 401);
       }
 
-      const trip = await this.tripService.getTripById(req.params.tripId, req.user.userId);
+      const trip = await this.tripService.getTripById(req.user.userId, req.params.tripId);
 
       res.status(200).json({
         success: true,
@@ -106,7 +103,7 @@ export class SavedTripController {
         throw new AppError('Unauthorized', 401);
       }
 
-      const trip = await this.tripService.updateTrip(req.params.tripId, req.user.userId, req.body);
+      const trip = await this.tripService.updateTrip(req.user.userId, req.params.tripId, req.body);
 
       res.status(200).json({
         success: true,
@@ -128,7 +125,7 @@ export class SavedTripController {
         throw new AppError('Unauthorized', 401);
       }
 
-      await this.tripService.deleteTrip(req.params.tripId, req.user.userId);
+      await this.tripService.deleteTrip(req.user.userId, req.params.tripId);
 
       res.status(200).json({
         success: true,

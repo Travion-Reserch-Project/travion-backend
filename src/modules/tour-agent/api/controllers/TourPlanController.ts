@@ -241,8 +241,7 @@ export class TourPlanController {
       endDate.setDate(endDate.getDate() + (maxDay - minDay));
 
       // Create saved trip from the plan
-      const savedTrip = await savedTripService.createTrip({
-        userId,
+      const savedTrip = await savedTripService.createTrip(userId, {
         title,
         description,
         destinations,

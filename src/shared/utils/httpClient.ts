@@ -6,7 +6,7 @@
 import axios, { AxiosInstance, AxiosRequestConfig, AxiosResponse, AxiosError } from 'axios';
 import { logger } from '../config/logger';
 import { aiEngineConfig } from '../config/aiEngine';
-import { AIEngineError } from '../types/aiEngine';
+import { AIEngineError } from '../../modules/tour-agent/domain/types/aiEngine';
 
 /**
  * HTTP Client class for making requests to the AI Engine
@@ -25,7 +25,7 @@ class HttpClient {
       timeout: aiEngineConfig.timeout,
       headers: {
         'Content-Type': 'application/json',
-        'Accept': 'application/json',
+        Accept: 'application/json',
       },
     });
 
@@ -107,9 +107,11 @@ class HttpClient {
    * Check if error is a timeout error
    */
   private isTimeoutError(error: AxiosError): boolean {
-    return error.code === 'ECONNABORTED' ||
-           error.code === 'ETIMEDOUT' ||
-           error.message?.includes('timeout');
+    return (
+      error.code === 'ECONNABORTED' ||
+      error.code === 'ETIMEDOUT' ||
+      error.message?.includes('timeout')
+    );
   }
 
   /**
@@ -173,9 +175,7 @@ class HttpClient {
    * Make a GET request
    */
   async get<T>(url: string, config?: AxiosRequestConfig): Promise<T> {
-    const response = await this.executeWithRetry<T>(() =>
-      this.client.get<T>(url, config)
-    );
+    const response = await this.executeWithRetry<T>(() => this.client.get<T>(url, config));
     return response.data;
   }
 
@@ -183,9 +183,7 @@ class HttpClient {
    * Make a POST request
    */
   async post<T>(url: string, data?: unknown, config?: AxiosRequestConfig): Promise<T> {
-    const response = await this.executeWithRetry<T>(() =>
-      this.client.post<T>(url, data, config)
-    );
+    const response = await this.executeWithRetry<T>(() => this.client.post<T>(url, data, config));
     return response.data;
   }
 
@@ -208,9 +206,7 @@ class HttpClient {
    * Make a PUT request
    */
   async put<T>(url: string, data?: unknown, config?: AxiosRequestConfig): Promise<T> {
-    const response = await this.executeWithRetry<T>(() =>
-      this.client.put<T>(url, data, config)
-    );
+    const response = await this.executeWithRetry<T>(() => this.client.put<T>(url, data, config));
     return response.data;
   }
 
@@ -218,9 +214,7 @@ class HttpClient {
    * Make a DELETE request
    */
   async delete<T>(url: string, config?: AxiosRequestConfig): Promise<T> {
-    const response = await this.executeWithRetry<T>(() =>
-      this.client.delete<T>(url, config)
-    );
+    const response = await this.executeWithRetry<T>(() => this.client.delete<T>(url, config));
     return response.data;
   }
 
