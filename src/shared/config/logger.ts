@@ -5,22 +5,25 @@ import config from './config';
 
 const logDir = path.join(__dirname, '../../logs');
 
-// Safe JSON stringify that handles circular references
-const safeStringify = (obj: any, indent = 2) => {
-  const cache = new Set();
-  return JSON.stringify(
-    obj,
-    (_key, value) => {
-      if (typeof value === 'object' && value !== null) {
-        if (cache.has(value)) {
-          return '[Circular]';
-        }
-        cache.add(value);
+/**
+ * Safe JSON stringify that handles circular references
+ */
+const safeStringify = (obj: unknown): string => {
+  const seen = new WeakSet();
+  return JSON.stringify(obj, (_key, value) => {
+    // Handle circular references
+    if (typeof value === 'object' && value !== null) {
+      if (seen.has(value)) {
+        return '[Circular]';
       }
-      return value;
-    },
-    indent
-  );
+      seen.add(value);
+    }
+    // Remove potentially large or sensitive data
+    if (_key === 'socket' || _key === 'request' || _key === 'response' || _key === '_httpMessage') {
+      return '[Removed]';
+    }
+    return value;
+  });
 };
 
 // Define log format
@@ -38,7 +41,11 @@ const consoleFormat = winston.format.combine(
   winston.format.printf(({ timestamp, level, message, ...meta }) => {
     let msg = `${timestamp} [${level}]: ${message}`;
     if (Object.keys(meta).length > 0) {
-      msg += ` ${safeStringify(meta, 0)}`;
+      try {
+        msg += ` ${safeStringify(meta)}`;
+      } catch {
+        msg += ' [Unable to stringify metadata]';
+      }
     }
     return msg;
   })

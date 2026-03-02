@@ -8,6 +8,12 @@ import { safetyRoutes } from '../modules/safety/api/routes/safetyRoutes';
 import { incidentReportRoutes } from '../modules/safety/api/routes/incidentReportRoutes';
 import weatherRoutes from '../modules/weather/api/routes/weatherRoutes';
 import healthRoutes from '../modules/weather/api/routes/HealthProfileRoutes';
+import aiEngineRoutes from '../modules/auth/api/routes/aiEngineRoutes';
+import userPreferencesRoutes from '../modules/auth/api/routes/userPreferencesRoutes';
+import savedTripRoutes from '../modules/auth/api/routes/savedTripRoutes';
+import chatSessionRoutes from '../modules/auth/api/routes/chatSessionRoutes';
+import locationRoutes from '../modules/auth/api/routes/locationRoutes';
+import tourPlanRoutes from '../modules/auth/api/routes/tourPlanRoutes';
 
 const router = Router();
 
@@ -37,5 +43,11 @@ router.use('/safety', safetyRoutes);
 router.use('/incidents', incidentReportRoutes);
 router.use('/healthProfile', healthRoutes);
 router.use('/weather', weatherRoutes);
+router.use('/ai', aiEngineRoutes);
+router.use('/preferences', userPreferencesRoutes);
+router.use('/trips', savedTripRoutes);
+router.use('/chat', chatSessionRoutes);
+router.use('/locations', locationRoutes);
+router.use('/tour-plan', tourPlanRoutes);
 
 export default router;
