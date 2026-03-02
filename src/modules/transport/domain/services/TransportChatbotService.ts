@@ -3,10 +3,20 @@ import { TransportService } from './TransportService';
 import { WeatherService } from './WeatherService';
 import { LLMService } from './LLMService';
 import { GoogleMapsService } from './GoogleMapsService';
-import { RouteContextBuilder } from './RouteContextBuilder';
-import { RankingService } from './RankingService';
+import { RouteContextBuilder, StaticRouteData, RouteContext } from './RouteContextBuilder';
+import { RankingService, RankedRoute } from './RankingService';
+import { RouteAvailabilityHelper } from '../utils/RouteAvailabilityHelper';
 import { logger } from '../../../../shared/config/logger';
 import { IMessage } from '../models/Message';
+import { IConversation } from '../models/Conversation';
+
+// Extended StaticRouteData with additional fields used in route creation
+interface ExtendedStaticRouteData extends StaticRouteData {
+  origin_city_id?: number | string;
+  destination_city_id?: number | string;
+  distance_km?: number;
+  has_transfer?: boolean;
+}
 
 export interface ChatRequest {
   user_id: string;
@@ -188,10 +198,18 @@ TASK: Extract intent and entities from the ENTIRE conversation, not just the cur
 - If origin or destination was mentioned earlier in the conversation, include it even if not in the current message
 - Intent types: route_query, weather_query, location_info, general_question, greeting, unknown
 
-IMPORTANT CONTEXT RULES:
-1. If the user previously said where they want to go, and now just mentions where they're from, combine them
-2. If the user previously said where they're from, and now just mentions where they want to go, combine them
-3. Look for patterns like "I'm in [city]", "from [city]", "to [city]", "I want to go to [city]"
+IMPORTANT EXTRACTION RULES:
+1. Extract ONLY the city/location names, NOT the full phrase
+2. For "I'm in Colombo and I want to go to Kandy" → origin: "Colombo", destination: "Kandy"
+3. For "from Galle to Matara" → origin: "Galle", destination: "Matara"
+4. Remove any surrounding words like "and", "I want to", "go to", etc.
+5. If the user previously said where they want to go, and now just mentions where they're from, combine them
+6. If the user previously said where they're from, and now just mentions where they want to go, combine them
+
+EXAMPLES:
+- "I'm in Colombo and i want to go to embilipitiya" → origin: "Colombo", destination: "embilipitiya"
+- "How to get from Kandy to Nuwara Eliya?" → origin: "Kandy", destination: "Nuwara Eliya"
+- "I'm at Negombo" + (previous: "going to Galle") → origin: "Negombo", destination: "Galle"
 
 Return JSON with: intent, origin, destination, transport_type`;
 
@@ -201,6 +219,10 @@ Return JSON with: intent, origin, destination, transport_type`;
         'transport_type',
         'intent',
       ]);
+
+      logger.info(
+        `LLM extracted intent: ${result.extracted.intent}, origin: "${result.extracted.origin}", destination: "${result.extracted.destination}"`
+      );
 
       return {
         intent: (result.extracted.intent as ExtractedIntent['intent']) || 'unknown',
@@ -255,11 +277,16 @@ Return JSON with: intent, origin, destination, transport_type`;
 
     if (routePatterns.some((pattern) => pattern.test(lowerMessage))) {
       // Extract origin and destination from current message
-      const fromMatch = lowerMessage.match(/from\s+([a-z\s]+?)(?:\s+to|\?|$|,)/i);
-      const toMatch = lowerMessage.match(/to\s+([a-z\s]+?)(?:\?|$|,|\s+from)/i);
-      const inMatch = lowerMessage.match(/(?:i'?m?\s+in|at)\s+([a-z\s]+?)(?:\?|$|,)/i);
+      // Updated patterns to stop at common conjunctions and prepositions
+      const fromMatch = lowerMessage.match(/from\s+([a-z\s]+?)(?:\s+(?:to|and|but)|\?|$|,)/i);
+      const toMatch = lowerMessage.match(
+        /(?:to|going\s+to|want\s+to\s+go\s+to)\s+([a-z\s]+?)(?:\?|$|,|\s+from|\s+and|\s+but)/i
+      );
+      const inMatch = lowerMessage.match(
+        /(?:i'?m?\s+in|i'?m?\s+at)\s+([a-z\s]+?)(?:\s+(?:and|but|to)|\?|$|,)/i
+      );
       const startingMatch = lowerMessage.match(
-        /(?:starting|coming)\s+from\s+([a-z\s]+?)(?:\?|$|,)/i
+        /(?:starting|coming)\s+from\s+([a-z\s]+?)(?:\s+(?:to|and|but)|\?|$|,)/i
       );
 
       let origin = fromMatch
@@ -398,7 +425,7 @@ Return JSON with: intent, origin, destination, transport_type`;
    * Handle route query with intelligent ranking and explanation
    */
   private async handleRouteQuery(
-    conversation: any,
+    conversation: IConversation,
     request: ChatRequest,
     intent: ExtractedIntent
   ): Promise<ChatResponse> {
@@ -451,8 +478,8 @@ Return JSON with: intent, origin, destination, transport_type`;
       }
 
       // Validate and find locations
-      let originCity = await this.transportService.findCity({ cityName: origin });
-      let destCity = await this.transportService.findCity({ cityName: destination });
+      const originCity = await this.transportService.findCity({ cityName: origin });
+      const destCity = await this.transportService.findCity({ cityName: destination });
 
       // If cities not found in DB, try geocoding with Google Maps
       let originCoords: { lat: number; lng: number } | null = null;
@@ -497,14 +524,30 @@ Return JSON with: intent, origin, destination, transport_type`;
       }
 
       // Fetch routes directly from Google Maps API for multiple transport modes
-      logger.info(`Fetching routes from Google Maps: ${origin} → ${destination}`);
+      logger.info(`Fetching routes from Google Maps: "${origin}" → "${destination}"`);
       logger.info(
         `Origin coords: ${JSON.stringify(originCoords)}, Dest coords: ${JSON.stringify(destCoords)}`
       );
 
+      // Sanity check: make sure origin and dest are not the same
+      const areSameCoords =
+        Math.abs(originCoords.lat - destCoords.lat) < 0.001 &&
+        Math.abs(originCoords.lng - destCoords.lng) < 0.001;
+      if (areSameCoords) {
+        logger.error(
+          `Origin and destination have same coordinates! Origin: ${JSON.stringify(originCoords)}, Dest: ${JSON.stringify(destCoords)}`
+        );
+        return {
+          conversation_id: String(conversation._id),
+          message: `It seems both locations are the same or very close to each other. Please check:\n• Origin: ${origin}\n• Destination: ${destination}`,
+          message_type: 'error',
+        };
+      }
+
       try {
-        // Fetch routes for different transport modes in parallel
-        const [transitRoutes, drivingRoutes] = await Promise.all([
+        // Fetch routes from both Google Maps AND database in parallel
+        const [transitRoutes, drivingRoutes, dbTrainRoutes, dbBusRoutes] = await Promise.all([
+          // Google Maps routes (for real-time directions)
           this.googleMapsService
             .getDirections(originCoords, destCoords, 'transit', true)
             .catch((err) => {
@@ -517,14 +560,64 @@ Return JSON with: intent, origin, destination, transport_type`;
               logger.warn(`Driving route fetch failed: ${err.message}`);
               return [];
             }),
+          // Database routes (if cities are found)
+          originCity && destCity
+            ? this.transportService
+                .findRoutes(originCity.city_id, destCity.city_id, 'train')
+                .catch((err) => {
+                  logger.warn(`Database train route fetch failed: ${err.message}`);
+                  return [];
+                })
+            : Promise.resolve([]),
+          originCity && destCity
+            ? this.transportService
+                .findRoutes(originCity.city_id, destCity.city_id, 'bus')
+                .catch((err) => {
+                  logger.warn(`Database bus route fetch failed: ${err.message}`);
+                  return [];
+                })
+            : Promise.resolve([]),
         ]);
 
         logger.info(
-          `Fetched ${transitRoutes.length} transit routes and ${drivingRoutes.length} driving routes`
+          `Fetched ${transitRoutes.length} transit routes, ${drivingRoutes.length} driving routes, ${dbTrainRoutes.length} DB train routes, ${dbBusRoutes.length} DB bus routes`
         );
 
+        // Filter database routes by availability and operational status
+        const currentTime = new Date();
+        const availableTrainRoutes = RouteAvailabilityHelper.sortByAvailability(
+          RouteAvailabilityHelper.filterOperationalRoutes(
+            RouteAvailabilityHelper.filterAvailableRoutes(dbTrainRoutes, currentTime),
+            currentTime
+          ),
+          currentTime
+        );
+        const availableBusRoutes = RouteAvailabilityHelper.sortByAvailability(
+          RouteAvailabilityHelper.filterOperationalRoutes(
+            RouteAvailabilityHelper.filterAvailableRoutes(dbBusRoutes, currentTime),
+            currentTime
+          ),
+          currentTime
+        );
+
+        logger.info(
+          `After availability filter: ${availableTrainRoutes.length} train routes, ${availableBusRoutes.length} bus routes available`
+        );
+
+        // Log first route details for debugging
+        if (transitRoutes.length > 0) {
+          logger.info(
+            `First transit route: distance=${transitRoutes[0].distance}m, duration=${transitRoutes[0].duration}s, steps=${transitRoutes[0].steps?.length}`
+          );
+        }
+        if (drivingRoutes.length > 0) {
+          logger.info(
+            `First driving route: distance=${drivingRoutes[0].distance}m, duration=${drivingRoutes[0].duration}s, steps=${drivingRoutes[0].steps?.length}`
+          );
+        }
+
         // Create synthetic route objects from Google Maps responses
-        const allRoutes: any[] = [];
+        const allRoutes: ExtendedStaticRouteData[] = [];
 
         // Add transit routes (bus/train)
         transitRoutes.forEach((route, idx) => {
@@ -534,7 +627,7 @@ Return JSON with: intent, origin, destination, transport_type`;
             destination_city_id: destCity?.city_id || 'geocoded',
             transport_type: 'bus',
             distance_km: route.distance / 1000,
-            estimated_time_min: Math.round(route.duration / 60),
+            estimated_duration_min: Math.round(route.duration / 60),
             base_fare_lkr: Math.round((route.distance / 1000) * 50), // Estimate: 50 LKR per km
             has_transfer: route.steps?.length > 3,
             scenic_score: 0.6,
@@ -552,7 +645,7 @@ Return JSON with: intent, origin, destination, transport_type`;
             destination_city_id: destCity?.city_id || 'geocoded',
             transport_type: 'car',
             distance_km: route.distance / 1000,
-            estimated_time_min: Math.round(route.duration / 60),
+            estimated_duration_min: Math.round(route.duration / 60),
             base_fare_lkr: Math.round((route.distance / 1000) * 150), // Estimate: 150 LKR per km
             has_transfer: false,
             scenic_score: 0.7,
@@ -560,6 +653,47 @@ Return JSON with: intent, origin, destination, transport_type`;
             operator_name: 'Private Car/Taxi',
             navigation_steps: route.steps, // Include turn-by-turn navigation
           });
+        });
+
+        // Add database train routes (actual Sri Lankan train data - filtered by availability)
+        availableTrainRoutes.forEach((route) => {
+          allRoutes.push({
+            route_id: route.route_id,
+            origin_city_id: route.origin_city_id,
+            destination_city_id: route.destination_city_id,
+            transport_type: 'train',
+            distance_km: route.distance_km,
+            estimated_duration_min: route.estimated_time_min,
+            base_fare_lkr: route.base_fare_lkr || Math.round(route.distance_km * 40), // Estimate if not provided
+            has_transfer: route.has_transfer,
+            scenic_score: 0.8, // Trains in Sri Lanka are often scenic
+            comfort_score: 0.75,
+            operator_name: 'Sri Lanka Railways',
+          });
+        });
+
+        // Add database bus routes (filtered by availability - if any additional routes not covered by Google Maps)
+        availableBusRoutes.forEach((route) => {
+          // Only add if not a duplicate of Google Maps transit
+          const isDuplicate = allRoutes.some(
+            (r) =>
+              r.transport_type === 'bus' && Math.abs((r.distance_km || 0) - route.distance_km) < 10
+          );
+          if (!isDuplicate) {
+            allRoutes.push({
+              route_id: route.route_id,
+              origin_city_id: route.origin_city_id,
+              destination_city_id: route.destination_city_id,
+              transport_type: 'bus',
+              distance_km: route.distance_km,
+              estimated_duration_min: route.estimated_time_min,
+              base_fare_lkr: route.base_fare_lkr || Math.round(route.distance_km * 50),
+              has_transfer: route.has_transfer,
+              scenic_score: 0.6,
+              comfort_score: 0.7,
+              operator_name: route.route_details?.frequency || 'Public Bus',
+            });
+          }
         });
 
         if (allRoutes.length === 0) {
@@ -585,7 +719,7 @@ Return JSON with: intent, origin, destination, transport_type`;
               destination_city_id: destCity?.city_id || 'geocoded',
               transport_type: 'bus',
               distance_km: directDistance,
-              estimated_time_min: estimatedDuration,
+              estimated_duration_min: estimatedDuration,
               base_fare_lkr: Math.round(directDistance * 50),
               has_transfer: directDistance > 100,
               scenic_score: 0.6,
@@ -598,7 +732,7 @@ Return JSON with: intent, origin, destination, transport_type`;
               destination_city_id: destCity?.city_id || 'geocoded',
               transport_type: 'car',
               distance_km: directDistance,
-              estimated_time_min: Math.round(estimatedDuration * 0.8), // Cars slightly faster
+              estimated_duration_min: Math.round(estimatedDuration * 0.8), // Cars slightly faster
               base_fare_lkr: Math.round(directDistance * 150),
               has_transfer: false,
               scenic_score: 0.7,
@@ -622,6 +756,13 @@ Return JSON with: intent, origin, destination, transport_type`;
 
         logger.info(`Found ${allRoutes.length} routes from Google Maps`);
 
+        // Log details of all routes for debugging
+        allRoutes.forEach((route, idx) => {
+          logger.info(
+            `  Route ${idx + 1}: ${route.transport_type} - ${(route.distance_km || 0).toFixed(1)}km, ${route.estimated_duration_min || 0}min, fare: LKR ${route.base_fare_lkr || 0}`
+          );
+        });
+
         // Build route contexts with real-time data (parallel)
         const routeContexts = await this.routeContextBuilder.buildRouteContexts(
           allRoutes,
@@ -630,7 +771,7 @@ Return JSON with: intent, origin, destination, transport_type`;
         );
 
         // Filter out failed contexts
-        const validContexts = routeContexts.filter((ctx) => ctx !== null) as any[];
+        const validContexts = routeContexts.filter((ctx) => ctx !== null) as RouteContext[];
         if (validContexts.length === 0) {
           return {
             conversation_id: String(conversation._id),
@@ -641,7 +782,13 @@ Return JSON with: intent, origin, destination, transport_type`;
 
         // Infer user preferences from message and rank routes
         const userWeights = this.rankingService.guessUserWeights(request.message);
-        const rankedRoutes = await this.rankingService.rankRoutes(validContexts, userWeights);
+
+        // Pass coordinates to enable ML ranking
+        const rankedRoutes = await this.rankingService.rankRoutes(validContexts, userWeights, {
+          origin: originCoords,
+          destination: destCoords,
+          departureTime: new Date(), // Use current time or parse from request
+        });
 
         // Generate natural language explanation from top routes (fallback if LLM unavailable)
         let explanation: string;
@@ -727,7 +874,7 @@ Return JSON with: intent, origin, destination, transport_type`;
   /**
    * Format intelligent route response with ranked options
    */
-  private formatIntelligentRouteResponse(rankedRoutes: any[], explanation: string): string {
+  private formatIntelligentRouteResponse(rankedRoutes: RankedRoute[], explanation: string): string {
     let response = `${explanation}\n\n`;
 
     // Show top 3 routes with detailed metrics
@@ -761,7 +908,7 @@ Return JSON with: intent, origin, destination, transport_type`;
         ) {
           response += '\n   **🗺️ Turn-by-Turn Directions:**\n';
           const stepsToShow = route.static.navigation_steps.slice(0, 8); // Show first 8 steps
-          stepsToShow.forEach((step: any, stepIdx: number) => {
+          stepsToShow.forEach((step, stepIdx: number) => {
             const maneuverEmoji = this.getManeuverEmoji(step.maneuver);
             const distanceKm = (step.distance / 1000).toFixed(1);
             response += `   ${stepIdx + 1}. ${maneuverEmoji} ${step.instruction} (${distanceKm} km)\n`;
@@ -812,7 +959,7 @@ Return JSON with: intent, origin, destination, transport_type`;
    * Handle weather query
    */
   private async handleWeatherQuery(
-    conversation: any,
+    conversation: IConversation,
     _request: ChatRequest,
     intent: ExtractedIntent
   ): Promise<ChatResponse> {
@@ -835,10 +982,11 @@ Return JSON with: intent, origin, destination, transport_type`;
       };
     }
 
-    const weather = await this.weatherService.getCurrentWeather(
-      city.location.coordinates[1],
-      city.location.coordinates[0]
-    );
+    // Extract lat/lon from GeoJSON coordinates [longitude, latitude]
+    const latitude = city.location.coordinates[1];
+    const longitude = city.location.coordinates[0];
+
+    const weather = await this.weatherService.getCurrentWeather(latitude, longitude);
 
     if (!weather) {
       return {
@@ -870,7 +1018,7 @@ Return JSON with: intent, origin, destination, transport_type`;
    * Handle location info query
    */
   private async handleLocationInfo(
-    conversation: any,
+    conversation: IConversation,
     _request: ChatRequest,
     intent: ExtractedIntent
   ): Promise<ChatResponse> {
@@ -908,7 +1056,10 @@ Return JSON with: intent, origin, destination, transport_type`;
   /**
    * Handle greeting
    */
-  private async handleGreeting(conversation: any, _request: ChatRequest): Promise<ChatResponse> {
+  private async handleGreeting(
+    conversation: IConversation,
+    _request: ChatRequest
+  ): Promise<ChatResponse> {
     const greetings = [
       "Hello! 👋 I'm your Sri Lankan transport assistant. I can help you find the best bus or train routes across Sri Lanka. Where would you like to go today?",
       'Hi there! 🚌 Welcome to Sri Lanka Transport Helper. I can help you plan your journey. Just tell me where you want to go!',
@@ -933,7 +1084,7 @@ Return JSON with: intent, origin, destination, transport_type`;
    * Handle general question using LLM
    */
   private async handleGeneralQuestion(
-    conversation: any,
+    conversation: IConversation,
     request: ChatRequest,
     context: IMessage[]
   ): Promise<ChatResponse> {
@@ -1012,7 +1163,7 @@ Be friendly, concise, and culturally aware. If you don't know something, admit i
     userId: string,
     page: number = 1,
     limit: number = 20
-  ): Promise<{ conversations: any[]; total: number }> {
+  ): Promise<{ conversations: IConversation[]; total: number }> {
     return this.conversationService.getUserConversations(userId, page, limit);
   }
 
@@ -1021,7 +1172,7 @@ Be friendly, concise, and culturally aware. If you don't know something, admit i
    */
   async getConversationWithMessages(
     conversationId: string
-  ): Promise<{ conversation: any; messages: any[] } | null> {
+  ): Promise<{ conversation: IConversation; messages: IMessage[] } | null> {
     return this.conversationService.getConversation(conversationId);
   }
 }

@@ -1,5 +1,6 @@
 import axios, { AxiosInstance } from 'axios';
 import { logger } from '../../../../shared/config/logger';
+import { MLFeatures } from '../utils/MLFeatureExtractor';
 
 export interface TransportPredictionRequest {
   origin: {
@@ -17,8 +18,14 @@ export interface TransportPredictionRequest {
 }
 
 export interface TransportPredictionResponse {
-  predicted_mode: 'bus' | 'train' | 'mixed';
+  predicted_mode: 'bus' | 'train' | 'car' | 'intercity';
   confidence: number;
+  all_scores: {
+    bus: number;
+    train: number;
+    car: number;
+    intercity: number;
+  };
   explanation?: {
     factors: string[];
     reasoning: string;
@@ -29,13 +36,24 @@ export interface TransportPredictionResponse {
   }>;
 }
 
+export interface MLPredictionResponse {
+  prediction: 'bus' | 'train' | 'car' | 'intercity';
+  confidence: number;
+  all_scores: {
+    bus: number;
+    train: number;
+    car: number;
+    intercity: number;
+  };
+}
+
 export class MLService {
   private client: AxiosInstance;
   private baseUrl: string;
   private isEnabled: boolean;
 
   constructor() {
-    this.baseUrl = process.env.ML_SERVICE_URL || 'http://localhost:5000';
+    this.baseUrl = process.env.ML_SERVICE_URL || 'http://localhost:8001';
     this.isEnabled = process.env.ML_SERVICE_ENABLED === 'true';
 
     this.client = axios.create({
@@ -48,11 +66,44 @@ export class MLService {
 
     if (!this.isEnabled) {
       logger.warn('ML Service is disabled');
+    } else {
+      logger.info(`ML Service initialized at ${this.baseUrl}`);
     }
   }
 
   /**
-   * Predict best transport mode between two locations
+   * Predict transport mode using ML features
+   * Uses the new ML backend API: POST /api/transport/predict
+   */
+  async predictTransportModeWithFeatures(features: MLFeatures): Promise<MLPredictionResponse> {
+    if (!this.isEnabled) {
+      logger.warn('ML Service is disabled, returning default prediction');
+      return this.getDefaultMLPrediction(features);
+    }
+
+    try {
+      logger.info('Calling ML service with features:', features);
+
+      const response = await this.client.post<MLPredictionResponse>(
+        '/api/transport/predict',
+        features
+      );
+
+      logger.info('ML prediction received:', {
+        prediction: response.data.prediction,
+        confidence: response.data.confidence,
+      });
+
+      return response.data;
+    } catch (error) {
+      logger.error('Error calling ML service:', error);
+      return this.getDefaultMLPrediction(features);
+    }
+  }
+
+  /**
+   * Predict best transport mode between two locations (legacy)
+   * @deprecated Use predictTransportModeWithFeatures with MLFeatures instead
    */
   async predictTransportMode(
     request: TransportPredictionRequest
@@ -66,8 +117,14 @@ export class MLService {
       const response = await this.client.post('/api/predict/transport', request);
 
       return {
-        predicted_mode: response.data.predicted_mode || 'mixed',
+        predicted_mode: response.data.predicted_mode || 'bus',
         confidence: response.data.confidence || 0.5,
+        all_scores: response.data.all_scores || {
+          bus: 0.25,
+          train: 0.25,
+          car: 0.25,
+          intercity: 0.25,
+        },
         explanation: response.data.explanation,
         alternatives: response.data.alternatives,
       };
@@ -118,7 +175,7 @@ export class MLService {
    */
   private getDefaultPrediction(request: TransportPredictionRequest): TransportPredictionResponse {
     // Simple heuristic-based prediction
-    let predictedMode: 'bus' | 'train' | 'mixed' = 'mixed';
+    let predictedMode: 'bus' | 'train' | 'car' | 'intercity' = 'bus';
     let confidence = 0.5;
     const factors: string[] = [];
 
@@ -134,19 +191,59 @@ export class MLService {
       confidence = 0.65;
       factors.push('Long distance favors train transport');
     }
-    // Medium distance, use mixed
+    // Medium distance, use intercity
     else {
-      predictedMode = 'mixed';
+      predictedMode = 'intercity';
       confidence = 0.55;
-      factors.push('Medium distance - both options viable');
+      factors.push('Medium distance - intercity bus recommended');
     }
 
     return {
       predicted_mode: predictedMode,
       confidence,
+      all_scores: {
+        bus: predictedMode === 'bus' ? confidence : 0.2,
+        train: predictedMode === 'train' ? confidence : 0.2,
+        car: 0.1,
+        intercity: predictedMode === 'intercity' ? confidence : 0.2,
+      },
       explanation: {
         factors,
         reasoning: 'Based on distance heuristics (ML service unavailable)',
+      },
+    };
+  }
+
+  /**
+   * Get default ML prediction when service is unavailable
+   */
+  private getDefaultMLPrediction(features: MLFeatures): MLPredictionResponse {
+    let prediction: 'bus' | 'train' | 'car' | 'intercity' = 'bus';
+    let confidence = 0.5;
+
+    // Simple heuristics based on distance
+    if (features.distance_km < 30) {
+      prediction = 'bus';
+      confidence = 0.6;
+    } else if (features.distance_km > 100) {
+      prediction = 'train';
+      confidence = 0.65;
+    } else if (features.distance_km > 50) {
+      prediction = 'intercity';
+      confidence = 0.58;
+    } else {
+      prediction = 'bus';
+      confidence = 0.55;
+    }
+
+    return {
+      prediction,
+      confidence,
+      all_scores: {
+        bus: prediction === 'bus' ? confidence : 0.15,
+        train: prediction === 'train' ? confidence : 0.15,
+        car: 0.1,
+        intercity: prediction === 'intercity' ? confidence : 0.15,
       },
     };
   }

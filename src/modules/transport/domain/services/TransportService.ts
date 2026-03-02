@@ -1,5 +1,7 @@
 import { CityRepository } from '../repositories/CityRepository';
+import { TransportRouteRepository } from '../repositories/TransportRouteRepository';
 import { ICity } from '../models/City';
+import { ITransportRoute } from '../models/TransportRoute';
 
 export interface LocationInput {
   cityName?: string;
@@ -9,9 +11,11 @@ export interface LocationInput {
 
 export class TransportService {
   private cityRepo: CityRepository;
+  private routeRepo: TransportRouteRepository;
 
   constructor() {
     this.cityRepo = new CityRepository();
+    this.routeRepo = new TransportRouteRepository();
   }
 
   /**
@@ -37,5 +41,20 @@ export class TransportService {
     }
 
     return null;
+  }
+
+  /**
+   * Find routes between two cities from database
+   */
+  async findRoutes(
+    originCityId: number,
+    destinationCityId: number,
+    transportType?: 'bus' | 'train' | 'car'
+  ): Promise<ITransportRoute[]> {
+    return this.routeRepo.findByOriginAndDestination(
+      originCityId,
+      destinationCityId,
+      transportType
+    );
   }
 }

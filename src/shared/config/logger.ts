@@ -5,6 +5,24 @@ import config from './config';
 
 const logDir = path.join(__dirname, '../../logs');
 
+// Safe JSON stringify that handles circular references
+const safeStringify = (obj: any, indent = 2) => {
+  const cache = new Set();
+  return JSON.stringify(
+    obj,
+    (_key, value) => {
+      if (typeof value === 'object' && value !== null) {
+        if (cache.has(value)) {
+          return '[Circular]';
+        }
+        cache.add(value);
+      }
+      return value;
+    },
+    indent
+  );
+};
+
 // Define log format
 const logFormat = winston.format.combine(
   winston.format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
@@ -20,7 +38,7 @@ const consoleFormat = winston.format.combine(
   winston.format.printf(({ timestamp, level, message, ...meta }) => {
     let msg = `${timestamp} [${level}]: ${message}`;
     if (Object.keys(meta).length > 0) {
-      msg += ` ${JSON.stringify(meta)}`;
+      msg += ` ${safeStringify(meta, 0)}`;
     }
     return msg;
   })
