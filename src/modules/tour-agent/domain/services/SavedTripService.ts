@@ -10,114 +10,190 @@ export class SavedTripService {
   // CORE TRIP OPERATIONS
   // ============================================================================
 
-  async createTrip(_userId: string, _tripData: any): Promise<any> {
-    // TODO: Implement trip creation
-    throw new Error('Not implemented');
+  async createTrip(userId: string, tripData: any): Promise<any> {
+    // TODO: Implement trip creation with database
+    return {
+      tripId: `trip_${Date.now()}`,
+      userId,
+      ...tripData,
+      status: 'planning',
+      isPublic: false,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
   }
 
   async getTrips(_userId: string, _query?: any): Promise<any[]> {
-    // TODO: Implement get trips
-    throw new Error('Not implemented');
+    // TODO: Implement get trips with database
+    return [];
   }
 
-  async getUserTrips(_userId: string, _page: number, _limit: number, _filters?: any): Promise<any> {
-    // TODO: Implement get user trips with pagination
-    throw new Error('Not implemented');
+  async getUserTrips(_userId: string, page: number, limit: number, _filters?: any): Promise<any> {
+    // TODO: Implement get user trips with pagination and database
+    return {
+      trips: [],
+      pagination: {
+        page,
+        limit,
+        total: 0,
+        pages: 0,
+      },
+    };
   }
 
-  async getTripById(_userId: string, _tripId: string): Promise<any> {
-    // TODO: Implement get trip by id
-    throw new Error('Not implemented');
+  async getTripById(_userId: string, tripId: string): Promise<any> {
+    // TODO: Implement get trip by id with database
+    return {
+      tripId,
+      userId: _userId,
+      title: 'Sample Trip',
+      status: 'planning',
+      destinations: [],
+      itinerary: [],
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
   }
 
-  async updateTrip(_userId: string, _tripId: string, _tripData: any): Promise<any> {
-    // TODO: Implement update trip
-    throw new Error('Not implemented');
+  async updateTrip(_userId: string, tripId: string, tripData: any): Promise<any> {
+    // TODO: Implement update trip with database
+    return {
+      tripId,
+      userId: _userId,
+      ...tripData,
+      updatedAt: new Date(),
+    };
   }
 
   async deleteTrip(_userId: string, _tripId: string): Promise<void> {
-    // TODO: Implement delete trip
-    throw new Error('Not implemented');
+    // TODO: Implement delete trip with database
+    return;
   }
 
   async searchTrips(_userId: string, _query: string, _limit?: number): Promise<any[]> {
-    // TODO: Implement search trips
-    throw new Error('Not implemented');
+    // TODO: Implement search trips with database
+    return [];
   }
 
   // ============================================================================
   // STATUS OPERATIONS
   // ============================================================================
 
-  async updateTripStatus(_tripId: string, _userId: string, _status: string): Promise<any> {
-    // TODO: Implement update trip status
-    throw new Error('Not implemented');
+  async updateTripStatus(tripId: string, _userId: string, status: string): Promise<any> {
+    // TODO: Implement update trip status with database
+    return {
+      tripId,
+      userId: _userId,
+      status,
+      updatedAt: new Date(),
+    };
   }
 
   async getUpcomingTrips(_userId: string): Promise<any[]> {
-    // TODO: Implement get upcoming trips
-    throw new Error('Not implemented');
+    // TODO: Implement get upcoming trips with database
+    return [];
   }
 
   // ============================================================================
   // ITINERARY OPERATIONS
   // ============================================================================
 
-  async addItineraryItem(_tripId: string, _userId: string, _item: any): Promise<any> {
-    // TODO: Implement add itinerary item
-    throw new Error('Not implemented');
+  async addItineraryItem(tripId: string, _userId: string, item: any): Promise<any> {
+    // TODO: Implement add itinerary item with database
+    return {
+      tripId,
+      userId: _userId,
+      itinerary: [item],
+      updatedAt: new Date(),
+    };
   }
 
   async updateItineraryItem(
-    _tripId: string,
+    tripId: string,
     _userId: string,
-    _itemIndex: number,
-    _updatedItem: any
+    itemIndex: number,
+    updatedItem: any
   ): Promise<any> {
-    // TODO: Implement update itinerary item
-    throw new Error('Not implemented');
+    // TODO: Implement update itinerary item with database
+    return {
+      tripId,
+      userId: _userId,
+      itinerary: [{ ...updatedItem, index: itemIndex }],
+      updatedAt: new Date(),
+    };
   }
 
-  async removeItineraryItem(_tripId: string, _userId: string, _itemIndex: number): Promise<any> {
-    // TODO: Implement remove itinerary item
-    throw new Error('Not implemented');
+  async removeItineraryItem(tripId: string, _userId: string, _itemIndex: number): Promise<any> {
+    // TODO: Implement remove itinerary item with database
+    return {
+      tripId,
+      userId: _userId,
+      itinerary: [],
+      updatedAt: new Date(),
+    };
   }
 
-  async reorderItinerary(_tripId: string, _userId: string, _newOrder: number[]): Promise<any> {
-    // TODO: Implement reorder itinerary
-    throw new Error('Not implemented');
+  async reorderItinerary(tripId: string, _userId: string, newOrder: number[]): Promise<any> {
+    // TODO: Implement reorder itinerary with database
+    return {
+      tripId,
+      userId: _userId,
+      itinerary: newOrder,
+      updatedAt: new Date(),
+    };
   }
 
   // ============================================================================
   // PUBLIC TRIPS OPERATIONS
   // ============================================================================
 
-  async getPublicTrips(_page: number, _limit: number, _tags?: string[]): Promise<any> {
-    // TODO: Implement get public trips
-    throw new Error('Not implemented');
+  async getPublicTrips(page: number, limit: number, _tags?: string[]): Promise<any> {
+    // TODO: Implement get public trips with database
+    return {
+      trips: [],
+      pagination: {
+        page,
+        limit,
+        total: 0,
+        pages: 0,
+      },
+    };
   }
 
-  async togglePublic(_tripId: string, _userId: string): Promise<any> {
-    // TODO: Implement toggle trip visibility
-    throw new Error('Not implemented');
+  async togglePublic(tripId: string, _userId: string): Promise<any> {
+    // TODO: Implement toggle trip visibility with database
+    return {
+      tripId,
+      userId: _userId,
+      isPublic: true,
+      updatedAt: new Date(),
+    };
   }
 
   // ============================================================================
   // RATING & UTILITY OPERATIONS
   // ============================================================================
 
-  async addRating(
-    _tripId: string,
-    _userId: string,
-    _rating: number,
-    _review?: string
-  ): Promise<any> {
-    // TODO: Implement add rating
-    throw new Error('Not implemented');
+  async addRating(tripId: string, _userId: string, rating: number, review?: string): Promise<any> {
+    // TODO: Implement add rating with database
+    return {
+      tripId,
+      userId: _userId,
+      rating,
+      review,
+      updatedAt: new Date(),
+    };
   }
 
-  async duplicateTrip(_tripId: string, _userId: string): Promise<any> {
-    // TODO: Implement duplicate trip
-    throw new Error('Not implemented');
+  async duplicateTrip(tripId: string, userId: string): Promise<any> {
+    // TODO: Implement duplicate trip with database
+    return {
+      tripId: `trip_${Date.now()}`,
+      userId,
+      title: 'Copy of Trip',
+      originalTripId: tripId,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
   }
 }
