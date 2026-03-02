@@ -6,6 +6,8 @@ import userRoutes from '../modules/auth/api/routes/userRoutes';
 import { chatbotRoutes } from '../modules/transport/api/routes/chatbotRoutes';
 import { safetyRoutes } from '../modules/safety/api/routes/safetyRoutes';
 import { incidentReportRoutes } from '../modules/safety/api/routes/incidentReportRoutes';
+import weatherRoutes from '../modules/weather/api/routes/weatherRoutes';
+import healthRoutes from '../modules/weather/api/routes/HealthProfileRoutes';
 
 const router = Router();
 
@@ -33,5 +35,7 @@ router.use('/users', userRoutes);
 router.use('/chatbot', chatbotRoutes);
 router.use('/safety', safetyRoutes);
 router.use('/incidents', incidentReportRoutes);
+router.use('/healthProfile', healthRoutes);
+router.use('/weather', weatherRoutes);
 
 export default router;
