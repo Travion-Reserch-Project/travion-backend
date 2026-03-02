@@ -142,10 +142,12 @@ const itineraryItemSchema = new Schema<IItineraryItem>(
       type: String,
       enum: ['golden', 'blue', 'good', 'harsh', 'dark'],
     },
-    constraints: [{
-      type: String,
-      trim: true,
-    }],
+    constraints: [
+      {
+        type: String,
+        trim: true,
+      },
+    ],
   },
   { _id: false }
 );
@@ -252,15 +254,17 @@ const savedTripSchema = new Schema<ISavedTrip>(
       type: Date,
       required: [true, 'End date is required'],
     },
-    destinations: [{
-      type: String,
-      trim: true,
-    }],
+    destinations: [
+      {
+        type: String,
+        trim: true,
+      },
+    ],
     itinerary: {
       type: [itineraryItemSchema],
       default: [],
       validate: {
-        validator: function(v: IItineraryItem[]) {
+        validator: function (v: IItineraryItem[]) {
           return v.length <= 200; // Max 200 items per trip
         },
         message: 'Itinerary cannot have more than 200 items',
@@ -285,11 +289,13 @@ const savedTripSchema = new Schema<ISavedTrip>(
       type: String,
       trim: true,
     },
-    tags: [{
-      type: String,
-      trim: true,
-      maxlength: 50,
-    }],
+    tags: [
+      {
+        type: String,
+        trim: true,
+        maxlength: 50,
+      },
+    ],
     estimatedBudget: {
       type: estimatedBudgetSchema,
     },
@@ -325,7 +331,7 @@ const savedTripSchema = new Schema<ISavedTrip>(
   {
     timestamps: true,
     toJSON: {
-      transform: function(_doc, ret: Record<string, unknown>) {
+      transform: function (_doc, ret: Record<string, unknown>) {
         delete ret.__v;
         return ret;
       },
@@ -348,7 +354,7 @@ savedTripSchema.index({ tags: 1 });
 // ============================================================================
 
 // Validate endDate is after startDate
-savedTripSchema.pre('save', function(next) {
+savedTripSchema.pre('save', function (next) {
   if (this.endDate < this.startDate) {
     const error = new Error('End date must be after start date');
     return next(error);
@@ -357,7 +363,7 @@ savedTripSchema.pre('save', function(next) {
 });
 
 // Calculate totalDays if not provided
-savedTripSchema.pre('save', function(next) {
+savedTripSchema.pre('save', function (next) {
   if (this.startDate && this.endDate) {
     const diffTime = Math.abs(this.endDate.getTime() - this.startDate.getTime());
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));

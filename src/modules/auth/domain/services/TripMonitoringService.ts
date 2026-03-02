@@ -17,13 +17,13 @@ import {
   MonitoringStatus,
   AlertSeverity,
   AlertCategory,
-} from '../models/TripPlan';
+} from '../../../tour-agent/domain/models/TripPlan';
 import type {
   IActiveAlert,
   IMonitoringCheck,
   IDeltaPlan,
   IValidationResult,
-} from '../models/TripPlan';
+} from '../../../tour-agent/domain/models/TripPlan';
 import { httpClient } from '../utils/httpClient';
 import { logger } from '../config/logger';
 import { getShadowWatcher } from '../workers/shadowWatcher';
@@ -163,7 +163,7 @@ class TripMonitoringService {
 
     try {
       // Build itinerary items for AI Engine
-      const itineraryItems = tripPlan.itinerary.map(item => ({
+      const itineraryItems = tripPlan.itinerary.map((item) => ({
         locationName: item.locationName,
         latitude: item.latitude,
         longitude: item.longitude,
@@ -188,11 +188,15 @@ class TripMonitoringService {
         recommendations: string[];
         should_trigger_correction: boolean;
         correction_hints: string[];
-      }>('/api/v1/shadow-monitor/validate', {
-        itinerary: itineraryItems,
-        trip_date: tripPlan.startDate.toISOString(),
-        activities: tripPlan.itinerary.map(i => i.activity),
-      }, 120000);
+      }>(
+        '/api/v1/shadow-monitor/validate',
+        {
+          itinerary: itineraryItems,
+          trip_date: tripPlan.startDate.toISOString(),
+          activities: tripPlan.itinerary.map((i) => i.activity),
+        },
+        120000
+      );
 
       const result: IValidationResult = {
         validationId,
@@ -207,7 +211,6 @@ class TripMonitoringService {
       };
 
       return result;
-
     } catch (error) {
       logger.error('TripMonitoringService: Validation failed', {
         tripId: tripPlan._id,
@@ -309,13 +312,15 @@ class TripMonitoringService {
 
     // Determine overall health
     let overallHealth: 'good' | 'warning' | 'critical' = 'good';
-    const activeAlerts = trip.activeAlerts.filter(a => !a.isAcknowledged);
+    const activeAlerts = trip.activeAlerts.filter((a) => !a.isAcknowledged);
 
-    if (activeAlerts.some(a => a.severity === AlertSeverity.CRITICAL)) {
+    if (activeAlerts.some((a) => a.severity === AlertSeverity.CRITICAL)) {
       overallHealth = 'critical';
-    } else if (activeAlerts.some(a =>
-      a.severity === AlertSeverity.HIGH || a.severity === AlertSeverity.MEDIUM
-    )) {
+    } else if (
+      activeAlerts.some(
+        (a) => a.severity === AlertSeverity.HIGH || a.severity === AlertSeverity.MEDIUM
+      )
+    ) {
       overallHealth = 'warning';
     }
 
@@ -325,7 +330,7 @@ class TripMonitoringService {
       lastCheck: trip.lastMonitoringCheck,
       nextCheck: trip.nextScheduledCheck,
       activeAlertsCount: activeAlerts.length,
-      deltaPlanAvailable: trip.deltaPlans.some(dp => !dp.userAccepted),
+      deltaPlanAvailable: trip.deltaPlans.some((dp) => !dp.userAccepted),
       overallHealth,
     };
   }
@@ -339,7 +344,7 @@ class TripMonitoringService {
       throw new Error(`Trip not found: ${tripId}`);
     }
 
-    return trip.activeAlerts.filter(a => !a.isAcknowledged);
+    return trip.activeAlerts.filter((a) => !a.isAcknowledged);
   }
 
   /**
@@ -355,7 +360,7 @@ class TripMonitoringService {
       throw new Error(`Trip not found: ${tripId}`);
     }
 
-    const alert = trip.activeAlerts.find(a => a.alertId === alertId);
+    const alert = trip.activeAlerts.find((a) => a.alertId === alertId);
     if (!alert) {
       throw new Error(`Alert not found: ${alertId}`);
     }
@@ -368,10 +373,10 @@ class TripMonitoringService {
     trip.alertHistory.push({ ...alert });
 
     // Remove from active alerts
-    trip.activeAlerts = trip.activeAlerts.filter(a => a.alertId !== alertId);
+    trip.activeAlerts = trip.activeAlerts.filter((a) => a.alertId !== alertId);
 
     // Update monitoring status if no more unacknowledged alerts
-    if (trip.activeAlerts.filter(a => !a.isAcknowledged).length === 0) {
+    if (trip.activeAlerts.filter((a) => !a.isAcknowledged).length === 0) {
       if (response === 'cancel') {
         trip.monitoringStatus = MonitoringStatus.CANCELLED;
         trip.status = 'cancelled';
@@ -404,23 +409,19 @@ class TripMonitoringService {
       return null;
     }
 
-    return trip.deltaPlans.find(dp => dp.deltaId === trip.currentDeltaPlanId) || null;
+    return trip.deltaPlans.find((dp) => dp.deltaId === trip.currentDeltaPlanId) || null;
   }
 
   /**
    * Accept or reject a delta plan
    */
-  async respondToDeltaPlan(
-    tripId: string,
-    deltaId: string,
-    accept: boolean
-  ): Promise<ITripPlan> {
+  async respondToDeltaPlan(tripId: string, deltaId: string, accept: boolean): Promise<ITripPlan> {
     const trip = await TripPlan.findById(tripId);
     if (!trip) {
       throw new Error(`Trip not found: ${tripId}`);
     }
 
-    const deltaPlan = trip.deltaPlans.find(dp => dp.deltaId === deltaId);
+    const deltaPlan = trip.deltaPlans.find((dp) => dp.deltaId === deltaId);
     if (!deltaPlan) {
       throw new Error(`Delta plan not found: ${deltaId}`);
     }
@@ -468,10 +469,7 @@ class TripMonitoringService {
   /**
    * Get monitoring history for a trip
    */
-  async getMonitoringHistory(
-    tripId: string,
-    limit: number = 20
-  ): Promise<IMonitoringCheck[]> {
+  async getMonitoringHistory(tripId: string, limit: number = 20): Promise<IMonitoringCheck[]> {
     const trip = await TripPlan.findById(tripId);
     if (!trip) {
       throw new Error(`Trip not found: ${tripId}`);
@@ -549,13 +547,11 @@ class TripMonitoringService {
     return {
       totalTrips: trips.length,
       activeMonitoring: trips.filter(
-        t => t.monitoringStatus === MonitoringStatus.ACTIVE_MONITORING
+        (t) => t.monitoringStatus === MonitoringStatus.ACTIVE_MONITORING
       ).length,
       totalAlertsDetected: trips.reduce((sum, t) => sum + t.totalAlertsDetected, 0),
       totalDeltaPlansGenerated: trips.reduce((sum, t) => sum + t.totalDeltaPlansGenerated, 0),
-      completedTrips: trips.filter(
-        t => t.monitoringStatus === MonitoringStatus.COMPLETED
-      ).length,
+      completedTrips: trips.filter((t) => t.monitoringStatus === MonitoringStatus.COMPLETED).length,
     };
   }
 }

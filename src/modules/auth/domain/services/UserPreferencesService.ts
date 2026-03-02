@@ -9,7 +9,7 @@ import {
   ISavedLocation,
   ISearchHistoryEntry,
   IPreferenceScores,
-} from '../models/UserPreferences';
+} from '../../../tour-agent/domain/models/UserPreferences';
 import { AppError } from '../middleware/errorHandler';
 
 // ============================================================================
@@ -169,10 +169,7 @@ export class UserPreferencesService {
   /**
    * Save a location to favorites
    */
-  async saveLocation(
-    userId: string,
-    location: SaveLocationDTO
-  ): Promise<IUserPreferences> {
+  async saveLocation(userId: string, location: SaveLocationDTO): Promise<IUserPreferences> {
     await this.repository.findOrCreate(userId);
 
     // Check if already saved
@@ -202,10 +199,7 @@ export class UserPreferencesService {
   /**
    * Remove a saved location
    */
-  async removeSavedLocation(
-    userId: string,
-    locationId: string
-  ): Promise<IUserPreferences> {
+  async removeSavedLocation(userId: string, locationId: string): Promise<IUserPreferences> {
     const updated = await this.repository.removeSavedLocation(userId, locationId);
     if (!updated) {
       throw new AppError('User preferences not found', 404);
@@ -235,11 +229,7 @@ export class UserPreferencesService {
     locationId: string,
     notes: string
   ): Promise<IUserPreferences> {
-    const updated = await this.repository.updateSavedLocationNotes(
-      userId,
-      locationId,
-      notes
-    );
+    const updated = await this.repository.updateSavedLocationNotes(userId, locationId, notes);
     if (!updated) {
       throw new AppError('Saved location not found', 404);
     }
@@ -253,10 +243,7 @@ export class UserPreferencesService {
   /**
    * Add a search history entry
    */
-  async addSearchHistory(
-    userId: string,
-    data: AddSearchHistoryDTO
-  ): Promise<IUserPreferences> {
+  async addSearchHistory(userId: string, data: AddSearchHistoryDTO): Promise<IUserPreferences> {
     await this.repository.findOrCreate(userId);
 
     const entry: ISearchHistoryEntry = {
@@ -278,10 +265,7 @@ export class UserPreferencesService {
   /**
    * Get search history
    */
-  async getSearchHistory(
-    userId: string,
-    limit: number = 50
-  ): Promise<ISearchHistoryEntry[]> {
+  async getSearchHistory(userId: string, limit: number = 50): Promise<ISearchHistoryEntry[]> {
     return await this.repository.getSearchHistory(userId, limit);
   }
 
@@ -303,10 +287,7 @@ export class UserPreferencesService {
   /**
    * Update favorite and avoid categories
    */
-  async updateCategories(
-    userId: string,
-    data: UpdateCategoriesDTO
-  ): Promise<IUserPreferences> {
+  async updateCategories(userId: string, data: UpdateCategoriesDTO): Promise<IUserPreferences> {
     await this.repository.findOrCreate(userId);
 
     const updated = await this.repository.updateCategories(
@@ -324,10 +305,7 @@ export class UserPreferencesService {
   /**
    * Add a category to favorites
    */
-  async addFavoriteCategory(
-    userId: string,
-    category: string
-  ): Promise<IUserPreferences> {
+  async addFavoriteCategory(userId: string, category: string): Promise<IUserPreferences> {
     await this.repository.findOrCreate(userId);
 
     const updated = await this.repository.addFavoriteCategory(userId, category);
@@ -341,10 +319,7 @@ export class UserPreferencesService {
   /**
    * Remove a category from favorites
    */
-  async removeFavoriteCategory(
-    userId: string,
-    category: string
-  ): Promise<IUserPreferences> {
+  async removeFavoriteCategory(userId: string, category: string): Promise<IUserPreferences> {
     const updated = await this.repository.removeFavoriteCategory(userId, category);
     if (!updated) {
       throw new AppError('User preferences not found', 404);
@@ -359,10 +334,7 @@ export class UserPreferencesService {
   /**
    * Mark a location as visited
    */
-  async markLocationVisited(
-    userId: string,
-    locationId: string
-  ): Promise<IUserPreferences> {
+  async markLocationVisited(userId: string, locationId: string): Promise<IUserPreferences> {
     await this.repository.findOrCreate(userId);
 
     const updated = await this.repository.addVisitedLocation(userId, locationId);
@@ -376,10 +348,7 @@ export class UserPreferencesService {
   /**
    * Remove a location from visited
    */
-  async unmarkLocationVisited(
-    userId: string,
-    locationId: string
-  ): Promise<IUserPreferences> {
+  async unmarkLocationVisited(userId: string, locationId: string): Promise<IUserPreferences> {
     const updated = await this.repository.removeVisitedLocation(userId, locationId);
     if (!updated) {
       throw new AppError('User preferences not found', 404);
@@ -436,10 +405,7 @@ export class UserPreferencesService {
   ): Promise<IUserPreferences> {
     await this.repository.findOrCreate(userId);
 
-    const updated = await this.repository.updateNotificationPreferences(
-      userId,
-      preferences
-    );
+    const updated = await this.repository.updateNotificationPreferences(userId, preferences);
     if (!updated) {
       throw new AppError('Failed to update notification preferences', 500);
     }

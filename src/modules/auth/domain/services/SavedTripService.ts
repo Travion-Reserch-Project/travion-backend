@@ -9,7 +9,7 @@ import {
   CreateTripData,
   TripFilters,
 } from '../repositories/SavedTripRepository';
-import { ISavedTrip, IItineraryItem } from '../models/SavedTrip';
+import { ISavedTrip, IItineraryItem } from '../../../tour-agent/domain/models/SavedTrip';
 
 export class SavedTripService {
   private repository: SavedTripRepository;
@@ -61,11 +61,7 @@ export class SavedTripService {
   /**
    * Update a trip
    */
-  async updateTrip(
-    tripId: string,
-    userId: string,
-    data: Partial<ISavedTrip>
-  ): Promise<ISavedTrip> {
+  async updateTrip(tripId: string, userId: string, data: Partial<ISavedTrip>): Promise<ISavedTrip> {
     // Validate dates if both are provided
     if (data.startDate && data.endDate) {
       if (new Date(data.endDate) < new Date(data.startDate)) {
@@ -130,9 +126,10 @@ export class SavedTripService {
   ): Promise<ISavedTrip> {
     // Get current trip to determine order
     const currentTrip = await this.getTripById(tripId, userId);
-    const maxOrder = currentTrip.itinerary.length > 0
-      ? Math.max(...currentTrip.itinerary.map(i => i.order))
-      : -1;
+    const maxOrder =
+      currentTrip.itinerary.length > 0
+        ? Math.max(...currentTrip.itinerary.map((i) => i.order))
+        : -1;
 
     const itemWithOrder = {
       ...item,
@@ -191,11 +188,7 @@ export class SavedTripService {
   /**
    * Reorder itinerary items
    */
-  async reorderItinerary(
-    tripId: string,
-    userId: string,
-    newOrder: number[]
-  ): Promise<ISavedTrip> {
+  async reorderItinerary(tripId: string, userId: string, newOrder: number[]): Promise<ISavedTrip> {
     const trip = await this.getTripById(tripId, userId);
 
     // Validate new order array
@@ -316,11 +309,7 @@ export class SavedTripService {
   /**
    * Search trips
    */
-  async searchTrips(
-    userId: string,
-    searchTerm: string,
-    limit: number = 10
-  ): Promise<ISavedTrip[]> {
+  async searchTrips(userId: string, searchTerm: string, limit: number = 10): Promise<ISavedTrip[]> {
     return await this.repository.search(userId, searchTerm, limit);
   }
 
