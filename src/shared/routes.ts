@@ -4,6 +4,8 @@ import { join } from 'path';
 import authRoutes from '../modules/auth/api/routes/authRoutes';
 import userRoutes from '../modules/auth/api/routes/userRoutes';
 import { chatbotRoutes } from '../modules/transport/api/routes/chatbotRoutes';
+import { safetyRoutes } from '../modules/safety/api/routes/safetyRoutes';
+import { incidentReportRoutes } from '../modules/safety/api/routes/incidentReportRoutes';
 
 const router = Router();
 
@@ -29,5 +31,7 @@ router.get('/health', (_req, res) => {
 router.use('/auth', authRoutes);
 router.use('/users', userRoutes);
 router.use('/chatbot', chatbotRoutes);
+router.use('/safety', safetyRoutes);
+router.use('/incidents', incidentReportRoutes);
 
 export default router;
