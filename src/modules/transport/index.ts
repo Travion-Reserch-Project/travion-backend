@@ -21,6 +21,12 @@ export { RouteContextBuilder } from './domain/services/RouteContextBuilder';
 export { TrafficService } from './domain/services/TrafficService';
 export { WeatherService } from './domain/services/WeatherService';
 
+// Export utils
+export { HolidayService } from './domain/utils/HolidayService';
+export { MLFeatureExtractor } from './domain/utils/MLFeatureExtractor';
+export { RouteAvailabilityHelper } from './domain/utils/RouteAvailabilityHelper';
+export { MLPredictionFilter } from './domain/utils/MLPredictionFilter';
+
 // Export models
 export { City, ICity } from './domain/models/City';
 export { Conversation, IConversation } from './domain/models/Conversation';
