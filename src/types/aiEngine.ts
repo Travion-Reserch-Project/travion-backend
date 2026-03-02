@@ -34,6 +34,7 @@ export interface ChatContext {
 export interface ChatRequest {
   message: string;              // User message (1-2000 chars)
   thread_id?: string;           // Thread ID for conversation persistence
+  user_id?: string;             // User ID for user-specific chat history isolation
   stream?: boolean;             // Enable streaming response (default: false)
   context?: ChatContext;        // Optional context for chat
 }
@@ -51,6 +52,9 @@ export interface ItinerarySlot {
   icon?: string;                // Icon name for UI display
   highlight?: boolean;          // Whether this is a highlighted activity
   ai_insight?: string;          // AI-generated insight for this activity
+  cultural_tip?: string;        // Cultural etiquette tip for this activity
+  ethical_note?: string;        // Ethical note (e.g., photography restrictions)
+  best_photo_time?: string;     // Best time for photography at this location
 }
 
 export interface ConstraintViolation {
@@ -93,13 +97,43 @@ export interface SelectedLocation {
   distance_km?: number;         // Distance from user's location
 }
 
+/**
+ * User preferences payload sent to AI Engine for tour plan personalization.
+ * Combines preference scores with travel style details.
+ */
+export interface TourPlanUserPreferences {
+  history: number;              // 0-1: Interest in historical/cultural sites
+  adventure: number;            // 0-1: Interest in adventure activities
+  nature: number;               // 0-1: Interest in nature and wildlife
+  relaxation: number;           // 0-1: Interest in relaxation and leisure
+  pace?: 'slow' | 'moderate' | 'fast';
+  budget?: 'budget' | 'mid-range' | 'luxury';
+  group_size?: 'solo' | 'couple' | 'small-group' | 'large-group';
+  dietary?: string[];
+  accessibility?: boolean;
+}
+
+/**
+ * A single step result from the AI Engine's agentic processing pipeline.
+ * Each step represents one tool/agent invocation during plan generation.
+ */
+export interface TourPlanStepResult {
+  step: string;                 // Step name (e.g., "crowd_check", "golden_hour", "event_sentinel")
+  status: 'ok' | 'warning' | 'error';
+  summary: string;              // Human-readable summary of what this step found
+  data?: Record<string, unknown>; // Raw data from the step
+}
+
 export interface TourPlanGenerateRequest {
   selected_locations: SelectedLocation[];  // List of locations to include
   start_date: string;           // Trip start date (YYYY-MM-DD)
   end_date: string;             // Trip end date (YYYY-MM-DD)
   thread_id?: string;           // Session ID for conversation continuity
+  user_id?: string;             // User ID for user-specific chat history isolation
   preferences?: string[];       // User preferences (e.g., ["photography", "nature"])
   message?: string;             // Optional message for plan generation/refinement
+  user_preferences?: TourPlanUserPreferences; // Structured user preferences for personalization
+  conversation_history?: ConversationMessage[]; // Previous messages for refinement context
 }
 
 export interface TourPlanMetadata {
@@ -109,6 +143,33 @@ export interface TourPlanMetadata {
   golden_hour_optimized: boolean;
   crowd_optimized: boolean;
   event_aware: boolean;
+  preference_match_explanation?: string; // Why this plan matches user preferences
+}
+
+/**
+ * Structured clarification question from the AI agent.
+ * Displayed as interactive options in the mobile UI.
+ */
+export interface ClarificationOption {
+  label: string;
+  description: string;
+  recommended: boolean;
+}
+
+export interface ClarificationQuestion {
+  question: string;
+  options: ClarificationOption[];
+  context: string;
+  type: 'single_select' | 'multi_select';
+}
+
+/**
+ * Cultural tip for a specific location.
+ */
+export interface CulturalTip {
+  location: string;
+  tip: string;
+  category: 'cultural' | 'ethical' | 'safety' | 'etiquette';
 }
 
 export interface TourPlanResponse {
@@ -121,6 +182,18 @@ export interface TourPlanResponse {
   reasoning_logs?: ReasoningLog[];
   warnings?: string[];          // List of warnings for the plan
   tips?: string[];              // Helpful tips for the trip
+  step_results?: TourPlanStepResult[];          // Agentic pipeline step results
+  clarification_question?: ClarificationQuestion; // Structured question when input is ambiguous
+  cultural_tips?: CulturalTip[];                // Sri Lanka-specific cultural tips/etiquette
+  events?: EventInfo[];                         // Special events/holidays for the trip dates
+}
+
+export interface EventInfo {
+  date: string;
+  name: string;
+  type: string;        // 'poya' | 'holiday' | 'festival' | 'school_holiday'
+  impact: string;
+  warnings: string[];
 }
 
 // ============================================================================
@@ -135,6 +208,7 @@ export interface ConversationMessage {
 export interface LocationChatRequest {
   message: string;              // User message (1-2000 chars)
   thread_id?: string;           // Thread ID for conversation persistence
+  user_id?: string;             // User ID for user-specific chat history isolation
   location_name: string;        // Location to focus on (2-100 chars)
   user_preferences?: UserPreferenceScores; // User preference scores
   conversation_history?: ConversationMessage[]; // Previous messages for context

@@ -12,6 +12,7 @@ export interface AIEngineConfig {
     // Chat & Conversation
     chat: string;
     locationChat: string;
+    clearChatHistory: string;
     // Recommendations
     recommend: string;
     explain: string;
@@ -49,6 +50,7 @@ const getAIEngineConfig = (): AIEngineConfig => ({
     // Chat & Conversation
     chat: '/api/v1/chat',
     locationChat: '/api/v1/chat/location',
+    clearChatHistory: '/api/v1/chat/clear-history',
     // Recommendations
     recommend: '/api/v1/recommend',
     explain: '/api/v1/explain',

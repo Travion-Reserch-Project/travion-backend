@@ -17,6 +17,7 @@ import {
   TourPlanGenerateRequest,
   TourPlanResponse,
   SelectedLocation,
+  TourPlanUserPreferences,
   // Recommendations
   RecommendationRequest,
   RecommendationResponse,
@@ -120,12 +121,14 @@ export class AIEngineService {
     context?: {
       currentLocation?: { latitude: number; longitude: number };
       preferences?: UserPreferenceScores;
-    }
+    },
+    userId?: string
   ): Promise<ChatResponse> {
     try {
       const request: ChatRequest = {
         message,
         thread_id: threadId,
+        user_id: userId,
         context,
       };
 
@@ -150,13 +153,15 @@ export class AIEngineService {
     locationName: string,
     threadId?: string,
     userPreferences?: UserPreferenceScores,
-    conversationHistory?: { role: 'user' | 'assistant'; content: string }[]
+    conversationHistory?: { role: 'user' | 'assistant'; content: string }[],
+    userId?: string
   ): Promise<ChatResponse> {
     try {
       const request: LocationChatRequest = {
         message,
         location_name: locationName,
         thread_id: threadId,
+        user_id: userId,
         user_preferences: userPreferences,
         conversation_history: conversationHistory,
       };
@@ -187,7 +192,9 @@ export class AIEngineService {
     endDate: string,
     threadId?: string,
     preferences?: string[],
-    message?: string
+    message?: string,
+    userId?: string,
+    userPreferences?: TourPlanUserPreferences
   ): Promise<TourPlanResponse> {
     try {
       const request: TourPlanGenerateRequest = {
@@ -195,8 +202,10 @@ export class AIEngineService {
         start_date: startDate,
         end_date: endDate,
         thread_id: threadId,
+        user_id: userId,
         preferences,
         message,
+        user_preferences: userPreferences,
       };
 
       logger.info(`Generating tour plan for ${selectedLocations.length} locations`);
@@ -223,7 +232,9 @@ export class AIEngineService {
     selectedLocations: SelectedLocation[],
     startDate: string,
     endDate: string,
-    preferences?: string[]
+    preferences?: string[],
+    userId?: string,
+    userPreferences?: TourPlanUserPreferences
   ): Promise<TourPlanResponse> {
     try {
       const request: TourPlanGenerateRequest = {
@@ -231,8 +242,10 @@ export class AIEngineService {
         start_date: startDate,
         end_date: endDate,
         thread_id: threadId,
+        user_id: userId,
         preferences,
         message,
+        user_preferences: userPreferences,
       };
 
       logger.info(`Refining tour plan with thread ${threadId}`);
@@ -245,6 +258,29 @@ export class AIEngineService {
       );
     } catch (error) {
       this.handleError(error, 'tour plan refinement');
+    }
+  }
+
+  /**
+   * Clear chat history from AI Engine's LangGraph memory
+   * POST /api/v1/chat/clear-history
+   */
+  async clearChatHistory(
+    threadId: string,
+    userId: string
+  ): Promise<{ success: boolean; message: string }> {
+    try {
+      return await httpClient.post<{ success: boolean; message: string }>(
+        aiEngineConfig.endpoints.clearChatHistory,
+        {
+          thread_id: threadId,
+          user_id: userId,
+        }
+      );
+    } catch (error) {
+      // Non-critical: log but don't throw
+      logger.warn('Failed to clear AI Engine chat history:', this.extractSafeErrorInfo(error));
+      return { success: false, message: 'Failed to clear AI Engine history' };
     }
   }
 

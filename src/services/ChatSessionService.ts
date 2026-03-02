@@ -124,11 +124,12 @@ export class ChatSessionService {
       timestamp: new Date(),
     };
 
-    // Call AI Engine
+    // Call AI Engine with userId for user-specific chat isolation
     const aiResponse = await this.aiService.chat(
       message,
       sessionId,
-      session.context
+      session.context,
+      userId
     );
 
     // Add assistant message with metadata
@@ -436,13 +437,14 @@ export class ChatSessionService {
       timestamp: new Date(),
     };
 
-    // Call AI Engine with location focus and conversation history
+    // Call AI Engine with location focus, conversation history, and userId for isolation
     const aiResponse = await this.aiService.locationChat(
       message,
       locationName,
       session.sessionId,
       session.context.preferences,
-      conversationHistory
+      conversationHistory,
+      userId
     );
 
     // Map constraints from snake_case to camelCase
@@ -497,6 +499,7 @@ export class ChatSessionService {
 
   /**
    * Clear all messages from a session (keeps session)
+   * Also clears the AI Engine's LangGraph checkpoint memory for this thread
    */
   async clearMessages(
     sessionId: string,
@@ -506,6 +509,10 @@ export class ChatSessionService {
     if (!session) {
       throw new AppError('Chat session not found', 404);
     }
+
+    // Also clear AI Engine's LangGraph memory for this thread
+    await this.aiService.clearChatHistory(sessionId, userId);
+
     return session;
   }
 }

@@ -6,12 +6,14 @@
 import { Request, Response, NextFunction } from 'express';
 import { AIEngineService } from '../services/AIEngineService';
 import { SavedTripService } from '../services/SavedTripService';
+import { UserPreferencesService } from '../services/UserPreferencesService';
 import { logger } from '../config/logger';
 import { AppError } from '../middleware/errorHandler';
-import type { SelectedLocation } from '../types/aiEngine';
+import type { SelectedLocation, TourPlanUserPreferences } from '../types/aiEngine';
 
 const aiEngineService = new AIEngineService();
 const savedTripService = new SavedTripService();
+const preferencesService = new UserPreferencesService();
 
 interface AuthenticatedRequest extends Request {
   user?: {
@@ -55,14 +57,36 @@ export class TourPlanController {
         distance_km: loc.distance_km,
       }));
 
-      // Call AI Engine to generate plan
+      // Auto-fetch user preferences from profile
+      let userPreferences: TourPlanUserPreferences | undefined;
+      try {
+        const prefs = await preferencesService.getPreferences(userId);
+        userPreferences = {
+          history: prefs.preferenceScores.history,
+          adventure: prefs.preferenceScores.adventure,
+          nature: prefs.preferenceScores.nature,
+          relaxation: prefs.preferenceScores.relaxation,
+          pace: prefs.travelStyle.pacePreference,
+          budget: prefs.travelStyle.budgetRange,
+          group_size: prefs.travelStyle.groupSize,
+          accessibility: prefs.travelStyle.accessibility,
+          dietary: prefs.travelStyle.dietaryRestrictions,
+        };
+        logger.info(`Loaded user preferences: history=${userPreferences.history}, adventure=${userPreferences.adventure}, nature=${userPreferences.nature}, relaxation=${userPreferences.relaxation}`);
+      } catch (err) {
+        logger.warn(`Could not load user preferences for ${userId}, proceeding without:`, err);
+      }
+
+      // Call AI Engine to generate plan with userId for user-specific isolation
       const response = await aiEngineService.generateTourPlan(
         locations,
         startDate,
         endDate,
         undefined, // threadId will be generated
         preferences,
-        message
+        message,
+        userId,
+        userPreferences
       );
 
       logger.info(`Tour plan generated successfully with thread ${response.thread_id}`);
@@ -77,6 +101,10 @@ export class TourPlanController {
           constraints: response.constraints,
           warnings: response.warnings,
           tips: response.tips,
+          stepResults: response.step_results,
+          clarificationQuestion: response.clarification_question,
+          culturalTips: response.cultural_tips,
+          events: response.events,
         },
       });
     } catch (error) {
@@ -118,14 +146,35 @@ export class TourPlanController {
         distance_km: loc.distance_km,
       }));
 
-      // Call AI Engine to refine plan
+      // Auto-fetch user preferences from profile
+      let userPreferences: TourPlanUserPreferences | undefined;
+      try {
+        const prefs = await preferencesService.getPreferences(userId);
+        userPreferences = {
+          history: prefs.preferenceScores.history,
+          adventure: prefs.preferenceScores.adventure,
+          nature: prefs.preferenceScores.nature,
+          relaxation: prefs.preferenceScores.relaxation,
+          pace: prefs.travelStyle.pacePreference,
+          budget: prefs.travelStyle.budgetRange,
+          group_size: prefs.travelStyle.groupSize,
+          accessibility: prefs.travelStyle.accessibility,
+          dietary: prefs.travelStyle.dietaryRestrictions,
+        };
+      } catch (err) {
+        logger.warn(`Could not load user preferences for ${userId}, proceeding without:`, err);
+      }
+
+      // Call AI Engine to refine plan with userId for user-specific isolation
       const response = await aiEngineService.refineTourPlan(
         threadId,
         message,
         locations,
         startDate,
         endDate,
-        preferences
+        preferences,
+        userId,
+        userPreferences
       );
 
       logger.info(`Tour plan refined successfully`);
@@ -140,6 +189,10 @@ export class TourPlanController {
           constraints: response.constraints,
           warnings: response.warnings,
           tips: response.tips,
+          stepResults: response.step_results,
+          clarificationQuestion: response.clarification_question,
+          culturalTips: response.cultural_tips,
+          events: response.events,
         },
       });
     } catch (error) {

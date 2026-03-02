@@ -6,16 +6,17 @@
 import { Request, Response, NextFunction } from 'express';
 import { LocationService } from '../services/LocationService';
 
+// Browser-like User-Agent for Wikimedia image fetching
+// Wikimedia blocks non-browser User-Agents (returns 403)
+const WIKIMEDIA_USER_AGENT =
+  'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36';
+
 export class LocationController {
   /**
    * Get location images by name
    * GET /api/v1/locations/:name/images
    */
-  getLocationImages = async (
-    req: Request,
-    res: Response,
-    next: NextFunction
-  ): Promise<void> => {
+  getLocationImages = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { name } = req.params;
 
@@ -73,11 +74,7 @@ export class LocationController {
    * Get location by name
    * GET /api/v1/locations/:name
    */
-  getLocationByName = async (
-    req: Request,
-    res: Response,
-    next: NextFunction
-  ): Promise<void> => {
+  getLocationByName = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { name } = req.params;
 
@@ -105,11 +102,7 @@ export class LocationController {
    * Search locations
    * GET /api/v1/locations/search?q=query&limit=10
    */
-  searchLocations = async (
-    req: Request,
-    res: Response,
-    next: NextFunction
-  ): Promise<void> => {
+  searchLocations = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { q, limit } = req.query;
 
@@ -138,14 +131,113 @@ export class LocationController {
   };
 
   /**
+   * Proxy an image from Wikimedia (or any external URL)
+   * GET /api/v1/locations/image-proxy?url=<encoded_url>
+   *
+   * This endpoint fetches external images (primarily Wikimedia) with
+   * a browser-like User-Agent and streams them to the client.
+   * Wikimedia blocks non-browser User-Agents with 403 Forbidden,
+   * so this proxy ensures images always load in mobile apps.
+   */
+  imageProxy = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { url } = req.query;
+
+      if (!url || typeof url !== 'string') {
+        res.status(400).json({
+          success: false,
+          message: 'Image URL (url) query parameter is required',
+        });
+        return;
+      }
+
+      // Only allow proxying from trusted domains
+      const allowedDomains = [
+        'upload.wikimedia.org',
+        'commons.wikimedia.org',
+        'en.wikipedia.org',
+        'images.unsplash.com',
+      ];
+
+      let parsedUrl: URL;
+      try {
+        parsedUrl = new URL(url);
+      } catch {
+        res.status(400).json({
+          success: false,
+          message: 'Invalid URL provided',
+        });
+        return;
+      }
+
+      if (!allowedDomains.some((domain) => parsedUrl.hostname.endsWith(domain))) {
+        res.status(403).json({
+          success: false,
+          message: 'Domain not allowed for proxying',
+        });
+        return;
+      }
+
+      // Fetch image from the external URL with browser-like User-Agent
+      const response = await fetch(url, {
+        headers: {
+          'User-Agent': WIKIMEDIA_USER_AGENT,
+          Accept: 'image/*,*/*;q=0.8',
+        },
+        redirect: 'follow',
+      });
+
+      if (!response.ok) {
+        res.status(response.status).json({
+          success: false,
+          message: `Failed to fetch image: ${response.statusText}`,
+        });
+        return;
+      }
+
+      // Forward content type and cache headers
+      const contentType = response.headers.get('content-type');
+      if (contentType) {
+        res.setHeader('Content-Type', contentType);
+      }
+
+      // Cache images for 24 hours
+      res.setHeader('Cache-Control', 'public, max-age=86400, s-maxage=86400');
+
+      const contentLength = response.headers.get('content-length');
+      if (contentLength) {
+        res.setHeader('Content-Length', contentLength);
+      }
+
+      // Stream the response body
+      if (response.body) {
+        const reader = response.body.getReader();
+        const pump = async (): Promise<void> => {
+          const { done, value } = await reader.read();
+          if (done) {
+            res.end();
+            return;
+          }
+          res.write(Buffer.from(value));
+          return pump();
+        };
+        await pump();
+      } else {
+        // Fallback for environments without ReadableStream
+        const arrayBuffer = await response.arrayBuffer();
+        res.send(Buffer.from(arrayBuffer));
+      }
+    } catch (error) {
+      console.error('Image proxy error:', error);
+      next(error);
+    }
+  };
+
+  /**
    * Get all locations (paginated)
    * GET /api/v1/locations?page=1&limit=20
    */
-  getAllLocations = async (
-    req: Request,
-    res: Response,
-    next: NextFunction
-  ): Promise<void> => {
+  getAllLocations = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { page, limit } = req.query;
 

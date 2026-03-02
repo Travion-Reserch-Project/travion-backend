@@ -26,6 +26,14 @@ router.get('/search', locationController.searchLocations);
 router.post('/images/bulk', locationController.getMultipleLocationImages);
 
 /**
+ * @route   GET /api/v1/locations/image-proxy
+ * @desc    Proxy external images (Wikimedia) with proper headers
+ * @access  Public
+ * @query   url - The image URL to proxy (required)
+ */
+router.get('/image-proxy', locationController.imageProxy);
+
+/**
  * @route   GET /api/v1/locations/:name/images
  * @desc    Get images for a specific location
  * @access  Public
