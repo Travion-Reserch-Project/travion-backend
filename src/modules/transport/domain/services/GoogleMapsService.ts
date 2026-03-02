@@ -118,6 +118,8 @@ export class GoogleMapsService {
         },
         travelMode: travelModeMap[mode],
         computeAlternativeRoutes: alternatives,
+        languageCode: 'en', // Force English instructions
+        units: 'METRIC', // Use kilometers/meters
       };
 
       logger.info('Routes API Request:', {
@@ -179,6 +181,7 @@ export class GoogleMapsService {
       const params: Record<string, string | number> = {
         query,
         key: this.apiKey,
+        language: 'en',
       };
 
       if (location) {
@@ -229,6 +232,7 @@ export class GoogleMapsService {
           destinations: destinationsParam,
           mode,
           key: this.apiKey,
+          language: 'en',
         },
       });
 
@@ -362,6 +366,7 @@ export class GoogleMapsService {
         params: {
           address,
           key: this.apiKey,
+          language: 'en',
         },
       });
 
@@ -386,6 +391,7 @@ export class GoogleMapsService {
         params: {
           latlng: `${lat},${lng}`,
           key: this.apiKey,
+          language: 'en',
         },
       });
 
