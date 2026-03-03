@@ -145,6 +145,39 @@ export class TransportChatbotService {
         confidence: intent.confidence,
       });
 
+      // Check and merge with pending route query context (cross-message memory)
+      let originRestoredFromContext = false;
+      let destinationRestoredFromContext = false;
+      const pendingQuery = this.conversationService.getPendingRouteQuery(activeConversation);
+      if (pendingQuery) {
+        logger.info('Found pending route query context:', pendingQuery);
+
+        // Merge extracted entities with pending context
+        if (!intent.entities.origin && pendingQuery.origin) {
+          intent.entities.origin = pendingQuery.origin.name;
+          originRestoredFromContext = true;
+          logger.info('Restored origin from context:', pendingQuery.origin.name);
+        }
+        if (!intent.entities.destination && pendingQuery.destination) {
+          intent.entities.destination = pendingQuery.destination.name;
+          destinationRestoredFromContext = true;
+          logger.info('Restored destination from context:', pendingQuery.destination.name);
+        }
+      }
+
+      // Save any NEW location mentions to pending context (for cross-message queries)
+      // Only save locations that are NEW (not restored from pending context)
+      const hasNewOrigin = intent.entities.origin && !originRestoredFromContext;
+      const hasNewDestination = intent.entities.destination && !destinationRestoredFromContext;
+
+      if (hasNewOrigin || hasNewDestination) {
+        await this.saveToPendingContext(
+          activeConversation,
+          hasNewOrigin ? intent.entities.origin : undefined,
+          hasNewDestination ? intent.entities.destination : undefined
+        );
+      }
+
       // Process based on intent
       let response: ChatResponse;
       switch (intent.intent) {
@@ -162,6 +195,19 @@ export class TransportChatbotService {
           break;
         default:
           response = await this.handleGeneralQuestion(activeConversation, request, recentMessages);
+      }
+
+      // Clear pending context whenever we have a complete query (both origin and destination)
+      // This ensures stale data doesn't persist after successful route queries
+      if (intent.entities.origin && intent.entities.destination) {
+        logger.info('Complete query detected - clearing pending context to prevent stale data');
+        await this.conversationService.clearPendingRouteQuery(String(activeConversation._id));
+      }
+
+      // Also clear pending context on greetings (indicates new conversation topic)
+      if (intent.intent === 'greeting') {
+        logger.info('Greeting detected - clearing any stale pending context');
+        await this.conversationService.clearPendingRouteQuery(String(activeConversation._id));
       }
 
       // Update processing time
@@ -185,6 +231,64 @@ export class TransportChatbotService {
     } catch (error) {
       logger.error('Error processing chat query:', error);
       throw error;
+    }
+  }
+
+  /**
+   * Save location mentions to pending context for cross-message queries
+   */
+  private async saveToPendingContext(
+    conversation: IConversation,
+    origin?: string,
+    destination?: string
+  ): Promise<void> {
+    try {
+      let savedOrigin: any = undefined;
+      let savedDestination: any = undefined;
+
+      // Resolve origin if provided
+      if (origin) {
+        const originCity = await this.transportService.findCity({ cityName: origin });
+        if (originCity) {
+          savedOrigin = {
+            name: origin,
+            city_id: originCity.city_id,
+            coordinates: {
+              lat: originCity.location.coordinates[1],
+              lng: originCity.location.coordinates[0],
+            },
+          };
+          logger.info('Saving origin to pending context:', origin);
+        }
+      }
+
+      // Resolve destination if provided
+      if (destination) {
+        const destCity = await this.transportService.findCity({ cityName: destination });
+        if (destCity) {
+          savedDestination = {
+            name: destination,
+            city_id: destCity.city_id,
+            coordinates: {
+              lat: destCity.location.coordinates[1],
+              lng: destCity.location.coordinates[0],
+            },
+          };
+          logger.info('Saving destination to pending context:', destination);
+        }
+      }
+
+      // Update pending context if we have anything to save
+      if (savedOrigin || savedDestination) {
+        await this.conversationService.updatePendingRouteQuery(
+          String(conversation._id),
+          savedOrigin,
+          savedDestination
+        );
+      }
+    } catch (error) {
+      logger.warn('Error saving to pending context:', error);
+      // Non-critical error, continue processing
     }
   }
 
@@ -449,7 +553,7 @@ Return JSON with: intent, origin, destination, transport_type`;
     intent: ExtractedIntent
   ): Promise<ChatResponse> {
     try {
-      const { origin, destination } = intent.entities;
+      let { origin, destination } = intent.entities;
 
       // Only destination provided - ask for origin
       if (!origin && destination) {
@@ -1157,15 +1261,23 @@ Return JSON with: intent, origin, destination, transport_type`;
       };
     }
 
-    let message = `📍 **${city.name.en}**\n\n`;
-    message += `**Transport Access:**\n`;
-    message += `🚂 Railway: ${city.transport_access.has_railway ? 'Available' : 'Not available'} (${city.transport_stats.railway_stations_count} stations)\n`;
-    message += `🚌 Bus: ${city.transport_access.has_bus ? 'Available' : 'Not available'} (${city.transport_stats.bus_stations_count} stations)\n`;
+    let message = `I see you mentioned ${city.name.en}! 🌍\n\n`;
+    message += `I can help you with:\n`;
+    message += `• Getting TO ${city.name.en} - just tell me where you're starting from\n`;
+    message += `• Traveling FROM ${city.name.en} - let me know your destination\n`;
+    message += `• Weather conditions in ${city.name.en}\n`;
+    message += `• Information about the city\n\n`;
+    message += `What would you like to know?`;
 
     return {
       conversation_id: String(conversation._id),
       message,
-      message_type: 'location_info',
+      message_type: 'text',
+      suggestions: [
+        `How to get to ${city.name.en}?`,
+        `Routes from ${city.name.en}`,
+        `Weather in ${city.name.en}`,
+      ],
     };
   }
 
