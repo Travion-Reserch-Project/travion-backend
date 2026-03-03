@@ -44,6 +44,25 @@ export interface ChatResponse {
     }>;
     transport_recommendations?: unknown;
     weather_info?: unknown;
+    map_data?: {
+      origin: { lat: number; lng: number };
+      destination: { lat: number; lng: number };
+      routes: Array<{
+        route_id: string;
+        transport_type: string;
+        polyline?: string;
+        navigation_steps?: Array<{
+          instruction: string;
+          maneuver?: string;
+          duration: number;
+          distance: number;
+          travel_mode: string;
+          start_location?: { lat: number; lng: number };
+          end_location?: { lat: number; lng: number };
+        }>;
+        color: string;
+      }>;
+    };
     processing_time_ms: number;
   };
   suggestions?: string[];
@@ -633,6 +652,7 @@ Return JSON with: intent, origin, destination, transport_type`;
             scenic_score: 0.6,
             comfort_score: 0.7,
             operator_name: 'Public Transit',
+            polyline: route.polyline, // Encoded polyline for map rendering
             navigation_steps: route.steps, // Include turn-by-turn navigation
           });
         });
@@ -651,6 +671,7 @@ Return JSON with: intent, origin, destination, transport_type`;
             scenic_score: 0.7,
             comfort_score: 0.9,
             operator_name: 'PickMe/Uber',
+            polyline: route.polyline, // Encoded polyline for map rendering
             navigation_steps: route.steps, // Include turn-by-turn navigation
           });
         });
@@ -848,6 +869,17 @@ Return JSON with: intent, origin, destination, transport_type`;
               ranking_weights: userWeights,
               ranked_routes: rankedRoutes.slice(0, 3),
             },
+            map_data: {
+              origin: originCoords,
+              destination: destCoords,
+              routes: rankedRoutes.slice(0, 3).map((route) => ({
+                route_id: route.route_id,
+                transport_type: route.transport_type,
+                polyline: route.static.polyline,
+                navigation_steps: route.static.navigation_steps,
+                color: this.getRouteColor(route.transport_type),
+              })),
+            },
             processing_time_ms: 0,
           },
           suggestions: [
@@ -995,6 +1027,20 @@ Return JSON with: intent, origin, destination, transport_type`;
   private isNightTravelWindow(departureTime: Date): boolean {
     const hour = departureTime.getHours();
     return hour >= 20 || hour < 5;
+  }
+
+  /**
+   * Get color for route type (for map rendering)
+   */
+  private getRouteColor(transportType: string): string {
+    const colorMap: Record<string, string> = {
+      bus: '#3B82F6', // Blue
+      train: '#10B981', // Green
+      car: '#F59E0B', // Amber
+      taxi: '#F59E0B', // Amber
+      tuk_tuk: '#8B5CF6', // Purple
+    };
+    return colorMap[transportType.toLowerCase()] || '#6B7280'; // Gray default
   }
 
   /**

@@ -12,8 +12,14 @@ export interface GoogleMapsRoute {
     duration: number;
     distance: number;
     travel_mode: string;
+    start_location?: { lat: number; lng: number };
+    end_location?: { lat: number; lng: number };
   }>;
-  polyline: string;
+  polyline: string; // Encoded polyline for entire route
+  bounds?: {
+    northeast: { lat: number; lng: number };
+    southwest: { lat: number; lng: number };
+  };
 }
 
 export interface GoogleMapsDirectionsResponse {
@@ -151,8 +157,32 @@ export class GoogleMapsService {
             duration: step.staticDuration ? parseInt(step.staticDuration.replace('s', '')) : 0,
             distance: step.distanceMeters || 0,
             travel_mode: step.travelMode || mode.toUpperCase(),
+            start_location: step.startLocation
+              ? {
+                  lat: step.startLocation.latLng?.latitude,
+                  lng: step.startLocation.latLng?.longitude,
+                }
+              : undefined,
+            end_location: step.endLocation
+              ? {
+                  lat: step.endLocation.latLng?.latitude,
+                  lng: step.endLocation.latLng?.longitude,
+                }
+              : undefined,
           })) || [],
         polyline: route.polyline?.encodedPolyline || '',
+        bounds: route.viewport
+          ? {
+              northeast: {
+                lat: route.viewport.high?.latitude,
+                lng: route.viewport.high?.longitude,
+              },
+              southwest: {
+                lat: route.viewport.low?.latitude,
+                lng: route.viewport.low?.longitude,
+              },
+            }
+          : undefined,
       }));
     } catch (error) {
       if (axios.isAxiosError(error)) {
