@@ -97,14 +97,14 @@ export class IncidentReportService {
               distance: distance,
               incidentId: (report._id as mongoose.Types.ObjectId).toString(),
             },
-            reportData.userId ? new mongoose.Types.ObjectId(reportData.userId) : undefined,
+            reportData.userId ? new mongoose.Types.ObjectId(reportData.userId) : undefined
           )
-          .then(result => {
+          .then((result) => {
             console.log(
-              `[IncidentReportService] Push notifications sent to ${result.notifiedCount} devices`,
+              `[IncidentReportService] Push notifications sent to ${result.notifiedCount} devices`
             );
           })
-          .catch(error => {
+          .catch((error) => {
             console.error('[IncidentReportService] Failed to send push notifications:', error);
           });
       }
