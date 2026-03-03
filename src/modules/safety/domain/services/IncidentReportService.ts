@@ -1,6 +1,7 @@
-import { IncidentReportRepository } from '../../../safety/domain/repositories/IncidentReportRepository';
-import { IIncidentReport } from '../../../safety/domain/models/IncidentReport';
+import { IncidentReportRepository } from '../repositories/IncidentReportRepository';
+import { IIncidentReport } from '../models/IncidentReport';
 import mongoose from 'mongoose';
+import { pushNotificationService } from './PushNotificationService';
 
 export interface CreateIncidentReportInput {
   userId?: string; // Optional for anonymous reports
@@ -78,6 +79,35 @@ export class IncidentReportService {
       console.log('[IncidentReportService] Creating report with payload:', reportPayload);
       const report = await this.incidentReportRepository.create(reportPayload);
       console.log('[IncidentReportService] Report created successfully:', report._id);
+
+      // Send push notifications to nearby users
+      if (report.location.latitude && report.location.longitude) {
+        // Calculate distance text for notification
+        const distance = 'nearby'; // You can calculate actual distance if needed
+
+        // Trigger push notification asynchronously (don't wait for it)
+        pushNotificationService
+          .sendIncidentAlertToNearby(
+            report.location.latitude,
+            report.location.longitude,
+            5, // 5km radius
+            {
+              incidentType: report.incidentType,
+              location: report.location.address,
+              distance: distance,
+              incidentId: (report._id as mongoose.Types.ObjectId).toString(),
+            },
+            reportData.userId ? new mongoose.Types.ObjectId(reportData.userId) : undefined
+          )
+          .then((result) => {
+            console.log(
+              `[IncidentReportService] Push notifications sent to ${result.notifiedCount} devices`
+            );
+          })
+          .catch((error) => {
+            console.error('[IncidentReportService] Failed to send push notifications:', error);
+          });
+      }
 
       return {
         success: true,
