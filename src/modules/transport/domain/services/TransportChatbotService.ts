@@ -650,7 +650,7 @@ Return JSON with: intent, origin, destination, transport_type`;
             has_transfer: false,
             scenic_score: 0.7,
             comfort_score: 0.9,
-            operator_name: 'Private Car/Taxi',
+            operator_name: 'PickMe/Uber',
             navigation_steps: route.steps, // Include turn-by-turn navigation
           });
         });
@@ -737,7 +737,7 @@ Return JSON with: intent, origin, destination, transport_type`;
               has_transfer: false,
               scenic_score: 0.7,
               comfort_score: 0.9,
-              operator_name: 'Private Car/Taxi',
+              operator_name: 'PickMe/Uber',
             }
           );
 
@@ -782,12 +782,13 @@ Return JSON with: intent, origin, destination, transport_type`;
 
         // Infer user preferences from message and rank routes
         const userWeights = this.rankingService.guessUserWeights(request.message);
+        const departureTime = this.resolveDepartureTime(intent.entities.time, request.message);
 
         // Pass coordinates to enable ML ranking
         const rankedRoutes = await this.rankingService.rankRoutes(validContexts, userWeights, {
           origin: originCoords,
           destination: destCoords,
-          departureTime: new Date(), // Use current time or parse from request
+          departureTime,
         });
 
         // Generate natural language explanation from top routes (fallback if LLM unavailable)
@@ -805,7 +806,11 @@ Return JSON with: intent, origin, destination, transport_type`;
         }
 
         // Format detailed response with top 3 routes
-        const detailedResponse = this.formatIntelligentRouteResponse(rankedRoutes, explanation);
+        const detailedResponse = this.formatIntelligentRouteResponse(
+          rankedRoutes,
+          explanation,
+          departureTime
+        );
 
         // Update conversation context
         await this.conversationService.updateContext(String(conversation._id), {
@@ -874,8 +879,35 @@ Return JSON with: intent, origin, destination, transport_type`;
   /**
    * Format intelligent route response with ranked options
    */
-  private formatIntelligentRouteResponse(rankedRoutes: RankedRoute[], explanation: string): string {
+  private formatIntelligentRouteResponse(
+    rankedRoutes: RankedRoute[],
+    explanation: string,
+    departureTime: Date
+  ): string {
     let response = `${explanation}\n\n`;
+
+    const topRoute = rankedRoutes[0];
+    const isNightWindow = this.isNightTravelWindow(departureTime);
+    const shortTrip = topRoute ? topRoute.dynamic.distance_km < 25 : false;
+
+    response += '**Route Summary:**\n';
+    if (topRoute) {
+      response += `• Departure time considered: ${departureTime.toLocaleTimeString('en-LK', {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: true,
+      })} (${isNightWindow ? 'night window' : 'day window'})\n`;
+      response += `• Estimated trip distance: ${topRoute.dynamic.distance_km.toFixed(1)} km\n`;
+      if (isNightWindow && shortTrip) {
+        response +=
+          '• Reasoning: For trips under 25 km during 8:00 PM–5:00 AM, ride-hailing (PickMe/Uber) is prioritized because public transport availability is less reliable.\n';
+      } else {
+        response +=
+          '• Reasoning: Ranked by travel time, fare, comfort, safety, weather, traffic, and ML confidence.\n';
+      }
+    }
+
+    response += '\n';
 
     // Show top 3 routes with detailed metrics
     if (rankedRoutes.length > 0) {
@@ -884,10 +916,10 @@ Return JSON with: intent, origin, destination, transport_type`;
       rankedRoutes.slice(0, 3).forEach((route, index) => {
         const medalEmoji = index === 0 ? '🥇' : index === 1 ? '🥈' : '🥉';
         response += `${medalEmoji} **Option ${index + 1}: ${route.transport_type.toUpperCase()}**\n`;
+        response += `   Provider: ${route.static.operator_name}\n`;
         response += `   Score: ${(route.score * 100).toFixed(0)}/100\n`;
         response += `   ⏱ Duration: ${route.dynamic.duration_min} min\n`;
         response += `   📏 Distance: ${route.dynamic.distance_km.toFixed(1)} km\n`;
-        response += `   💰 Fare: LKR ${route.static.base_fare_lkr.toFixed(0)}\n`;
 
         // Show key metrics
         const metrics = [];
@@ -898,6 +930,10 @@ Return JSON with: intent, origin, destination, transport_type`;
 
         if (metrics.length > 0) {
           response += `   ${metrics.join(' • ')}\n`;
+        }
+
+        if (route.recommendation_reason) {
+          response += `   🧠 Why this rank: ${route.recommendation_reason}\n`;
         }
 
         // Show turn-by-turn navigation for the top route only
@@ -925,6 +961,40 @@ Return JSON with: intent, origin, destination, transport_type`;
     response +=
       '💡 *Tip: You can ask me for cheaper options, faster routes, or more comfortable transport!*';
     return response;
+  }
+
+  private resolveDepartureTime(extractedTime?: string, message?: string): Date {
+    const baseDate = new Date();
+    const candidates = [extractedTime, message].filter((v): v is string => Boolean(v));
+
+    for (const text of candidates) {
+      const match = text.match(/\b(1[0-2]|0?[1-9])(?::([0-5][0-9]))?\s*(am|pm)\b/i);
+      if (!match) {
+        continue;
+      }
+
+      let hour = Number(match[1]);
+      const minute = Number(match[2] || '0');
+      const period = match[3].toLowerCase();
+
+      if (period === 'pm' && hour !== 12) {
+        hour += 12;
+      }
+      if (period === 'am' && hour === 12) {
+        hour = 0;
+      }
+
+      const parsed = new Date(baseDate);
+      parsed.setHours(hour, minute, 0, 0);
+      return parsed;
+    }
+
+    return baseDate;
+  }
+
+  private isNightTravelWindow(departureTime: Date): boolean {
+    const hour = departureTime.getHours();
+    return hour >= 20 || hour < 5;
   }
 
   /**

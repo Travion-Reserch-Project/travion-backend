@@ -87,18 +87,93 @@ export class RankingService {
         return [];
       }
 
+      const departureTime = coordinates?.departureTime || new Date();
+
       // Use ML ranking if enabled and coordinates provided
       if (process.env.USE_ML === 'true' && coordinates) {
-        return await this.rankRoutesWithML(routeContexts, coordinates, userWeights);
+        const mlRankedRoutes = await this.rankRoutesWithML(routeContexts, coordinates, userWeights);
+        return this.applyContextualPriorities(mlRankedRoutes, departureTime);
       }
 
       // Default rule-based ranking
-      return this.rankRoutesRuleBased(routeContexts, userWeights);
+      const ruleRankedRoutes = this.rankRoutesRuleBased(routeContexts, userWeights);
+      return this.applyContextualPriorities(ruleRankedRoutes, departureTime);
     } catch (error) {
       logger.error('Error ranking routes:', error);
       // Fallback to rule-based if ML fails
-      return this.rankRoutesRuleBased(routeContexts, userWeights);
+      const fallbackRankedRoutes = this.rankRoutesRuleBased(routeContexts, userWeights);
+      return this.applyContextualPriorities(fallbackRankedRoutes, coordinates?.departureTime);
     }
+  }
+
+  private applyContextualPriorities(
+    rankedRoutes: RankedRoute[],
+    departureTime?: Date
+  ): RankedRoute[] {
+    if (rankedRoutes.length === 0) {
+      return rankedRoutes;
+    }
+
+    const travelTime = departureTime || new Date();
+    const isNightWindow = this.isNightTravelWindow(travelTime);
+
+    if (!isNightWindow) {
+      return rankedRoutes;
+    }
+
+    const adjustedRoutes = rankedRoutes.map((route) => {
+      const routeType = route.static.transport_type.toLowerCase();
+      const operatorName = route.static.operator_name.toLowerCase();
+      const isShortTrip = route.dynamic.distance_km < 25;
+      const isRideHailing =
+        ['car', 'taxi', 'tuk_tuk'].includes(routeType) || /pickme|uber/.test(operatorName);
+      const isPublicTransport = ['bus', 'train'].includes(routeType);
+
+      let scoreAdjustment = 0;
+      let recommendationReason = route.recommendation_reason;
+
+      if (isShortTrip && isRideHailing) {
+        scoreAdjustment += 0.2;
+        recommendationReason =
+          'Night-time short trip: ride-hailing prioritized for better availability and safety.';
+      }
+
+      if (isShortTrip && isPublicTransport) {
+        scoreAdjustment -= 0.08;
+      }
+
+      if (scoreAdjustment === 0) {
+        return route;
+      }
+
+      const adjustedScore = Math.max(0, Math.min(1, route.score + scoreAdjustment));
+
+      return {
+        ...route,
+        score: adjustedScore,
+        recommendation_reason: recommendationReason,
+        scoreBreakdown: {
+          ...route.scoreBreakdown,
+          final_score: adjustedScore,
+        },
+      };
+    });
+
+    const rerankedRoutes = adjustedRoutes.sort((a, b) => b.score - a.score);
+
+    logger.info('Applied contextual ranking priorities', {
+      isNightWindow,
+      topRoute: rerankedRoutes[0]?.route_id,
+      topType: rerankedRoutes[0]?.static.transport_type,
+      topScore: rerankedRoutes[0]?.score,
+    });
+
+    return rerankedRoutes;
+  }
+
+  private isNightTravelWindow(departureTime: Date): boolean {
+    const hour = departureTime.getHours();
+    return hour >= 20 || hour < 5;
   }
 
   /**
@@ -291,12 +366,6 @@ export class RankingService {
             weights.speed_weight * speedScore +
             weights.budget_weight * budgetScore +
             weights.comfort_weight * comfortScore +
-            weights.scenic_weight * scenicScore +
-            weights.safety_weight * safetyScore -
-            weatherPenalty -
-            trafficPenalty -
-            accidentPenalty;
-          weights.comfort_weight * comfortScore +
             weights.scenic_weight * scenicScore +
             weights.safety_weight * safetyScore -
             weatherPenalty -
