@@ -10,7 +10,7 @@ import {
   ISearchHistoryEntry,
   IPreferenceScores,
 } from '../models/UserPreferences';
-import { AppError } from '../middleware/errorHandler';
+import { AppError } from '../../../../shared/middleware/errorHandler';
 
 // ============================================================================
 // DTOs

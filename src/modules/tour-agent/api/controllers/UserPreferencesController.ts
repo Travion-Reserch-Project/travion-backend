@@ -4,7 +4,7 @@
  */
 
 import { Response, NextFunction } from 'express';
-import { UserPreferencesService } from '../../domain/services/UserPreferencesService';
+import { UserPreferencesService } from '../../../auth/domain/services/UserPreferencesService';
 import { AuthRequest } from '../../../../shared/middleware/auth';
 import { AppError } from '../../../../shared/middleware/errorHandler';
 
