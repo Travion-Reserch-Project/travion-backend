@@ -119,6 +119,9 @@ export class LocationController {
         limit ? parseInt(limit as string, 10) : 10
       );
 
+      console.log(`Search query: "${q}", Results found: ${results.length}`);
+      console.log('Sample search results:', results);
+
       res.status(200).json({
         success: true,
         message: 'Locations found',
