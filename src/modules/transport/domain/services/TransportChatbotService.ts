@@ -145,37 +145,45 @@ export class TransportChatbotService {
         confidence: intent.confidence,
       });
 
-      // Check and merge with pending route query context (cross-message memory)
-      let originRestoredFromContext = false;
-      let destinationRestoredFromContext = false;
-      const pendingQuery = this.conversationService.getPendingRouteQuery(activeConversation);
-      if (pendingQuery) {
-        logger.info('Found pending route query context:', pendingQuery);
+      const isRouteIntent = intent.intent === 'route_query';
+      let hadPendingRouteContext = false;
 
-        // Merge extracted entities with pending context
-        if (!intent.entities.origin && pendingQuery.origin) {
-          intent.entities.origin = pendingQuery.origin.name;
-          originRestoredFromContext = true;
-          logger.info('Restored origin from context:', pendingQuery.origin.name);
+      if (isRouteIntent) {
+        // Check and merge with pending route query context only for route intents
+        let originRestoredFromContext = false;
+        let destinationRestoredFromContext = false;
+        const pendingQuery = this.conversationService.getPendingRouteQuery(activeConversation);
+
+        if (pendingQuery) {
+          hadPendingRouteContext = true;
+          logger.info('Found pending route query context:', pendingQuery);
+
+          if (!intent.entities.origin && pendingQuery.origin) {
+            intent.entities.origin = pendingQuery.origin.name;
+            originRestoredFromContext = true;
+            logger.info('Restored origin from context:', pendingQuery.origin.name);
+          }
+
+          if (!intent.entities.destination && pendingQuery.destination) {
+            intent.entities.destination = pendingQuery.destination.name;
+            destinationRestoredFromContext = true;
+            logger.info('Restored destination from context:', pendingQuery.destination.name);
+          }
         }
-        if (!intent.entities.destination && pendingQuery.destination) {
-          intent.entities.destination = pendingQuery.destination.name;
-          destinationRestoredFromContext = true;
-          logger.info('Restored destination from context:', pendingQuery.destination.name);
-        }
-      }
 
-      // Save any NEW location mentions to pending context (for cross-message queries)
-      // Only save locations that are NEW (not restored from pending context)
-      const hasNewOrigin = intent.entities.origin && !originRestoredFromContext;
-      const hasNewDestination = intent.entities.destination && !destinationRestoredFromContext;
-
-      if (hasNewOrigin || hasNewDestination) {
-        await this.saveToPendingContext(
-          activeConversation,
-          hasNewOrigin ? intent.entities.origin : undefined,
-          hasNewDestination ? intent.entities.destination : undefined
+        // Save NEW route entities for follow-up route turns only
+        const hasNewOrigin = Boolean(intent.entities.origin && !originRestoredFromContext);
+        const hasNewDestination = Boolean(
+          intent.entities.destination && !destinationRestoredFromContext
         );
+
+        if (hasNewOrigin || hasNewDestination) {
+          await this.saveToPendingContext(
+            activeConversation,
+            hasNewOrigin ? intent.entities.origin : undefined,
+            hasNewDestination ? intent.entities.destination : undefined
+          );
+        }
       }
 
       // Process based on intent
@@ -197,16 +205,15 @@ export class TransportChatbotService {
           response = await this.handleGeneralQuestion(activeConversation, request, recentMessages);
       }
 
-      // Clear pending context whenever we have a complete query (both origin and destination)
-      // This ensures stale data doesn't persist after successful route queries
-      if (intent.entities.origin && intent.entities.destination) {
-        logger.info('Complete query detected - clearing pending context to prevent stale data');
+      // Clear pending context after a successful full route answer
+      if (isRouteIntent && response.message_type === 'route_suggestion') {
+        logger.info('Route suggestion completed - clearing pending route context');
         await this.conversationService.clearPendingRouteQuery(String(activeConversation._id));
       }
 
-      // Also clear pending context on greetings (indicates new conversation topic)
-      if (intent.intent === 'greeting') {
-        logger.info('Greeting detected - clearing any stale pending context');
+      // Clear stale route context when user asks a non-route question
+      if (!isRouteIntent && hadPendingRouteContext) {
+        logger.info('Non-route intent with stale route context - clearing pending route context');
         await this.conversationService.clearPendingRouteQuery(String(activeConversation._id));
       }
 
@@ -553,7 +560,7 @@ Return JSON with: intent, origin, destination, transport_type`;
     intent: ExtractedIntent
   ): Promise<ChatResponse> {
     try {
-      let { origin, destination } = intent.entities;
+      const { origin, destination } = intent.entities;
 
       // Only destination provided - ask for origin
       if (!origin && destination) {
@@ -1402,5 +1409,50 @@ Be friendly, concise, and culturally aware. If you don't know something, admit i
     conversationId: string
   ): Promise<{ conversation: IConversation; messages: IMessage[] } | null> {
     return this.conversationService.getConversation(conversationId);
+  }
+
+  /**
+   * Start a fresh trip conversation (used by "New Trip" button)
+   */
+  async startNewTripConversation(
+    userId: string,
+    title?: string
+  ): Promise<{
+    conversation_id: string;
+    status: 'started';
+    ended_previous_conversation: boolean;
+    title: string;
+    created_at: Date;
+  }> {
+    const activeConversation = await this.conversationService.getActiveConversation(userId);
+
+    let endedPreviousConversation = false;
+    if (activeConversation) {
+      await this.conversationService.endConversation(String(activeConversation._id));
+      endedPreviousConversation = true;
+    }
+
+    const now = new Date();
+    const defaultTitle = `Trip ${now.toLocaleDateString('en-LK')} ${now.toLocaleTimeString(
+      'en-LK',
+      {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: true,
+      }
+    )}`;
+
+    const newConversation = await this.conversationService.createConversation({
+      user_id: userId,
+      title: title?.trim() || defaultTitle,
+    });
+
+    return {
+      conversation_id: String(newConversation._id),
+      status: 'started',
+      ended_previous_conversation: endedPreviousConversation,
+      title: newConversation.title || defaultTitle,
+      created_at: newConversation.createdAt,
+    };
   }
 }

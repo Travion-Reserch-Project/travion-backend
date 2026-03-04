@@ -38,3 +38,12 @@ export const paginationValidator = [
     .isInt({ min: 1, max: 100 })
     .withMessage('Limit must be between 1 and 100'),
 ];
+
+export const newTripValidator = [
+  body('title')
+    .optional()
+    .isString()
+    .withMessage('Title must be a string')
+    .isLength({ min: 1, max: 120 })
+    .withMessage('Title must be between 1 and 120 characters'),
+];

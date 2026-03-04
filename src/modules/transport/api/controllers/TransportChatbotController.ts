@@ -53,6 +53,33 @@ export class TransportChatbotController {
   };
 
   /**
+   * Start a new trip conversation
+   */
+  startNewTrip = async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const userId = req.user?.userId;
+      if (!userId) {
+        res.status(401).json({
+          success: false,
+          message: 'User not authenticated',
+        });
+        return;
+      }
+
+      const { title } = req.body;
+      const result = await this.chatbotService.startNewTripConversation(userId, title);
+
+      res.status(201).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      logger.error('Error in startNewTrip:', error);
+      next(error);
+    }
+  };
+
+  /**
    * Get conversation history
    */
   getConversations = async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {

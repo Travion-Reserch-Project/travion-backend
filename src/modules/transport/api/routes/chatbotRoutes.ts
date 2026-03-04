@@ -4,6 +4,7 @@ import { authenticate } from '../../../../shared/middleware/auth';
 import {
   chatMessageValidator,
   conversationIdValidator,
+  newTripValidator,
   paginationValidator,
 } from '../validators/chatbotValidator';
 
@@ -22,6 +23,13 @@ router.use(authenticate as any);
  * @access  Private
  */
 router.post('/message', chatMessageValidator, chatbotController.processMessage);
+
+/**
+ * @route   POST /api/v1/chatbot/conversations/new-trip
+ * @desc    Start a new trip conversation (ends current active one)
+ * @access  Private
+ */
+router.post('/conversations/new-trip', newTripValidator, chatbotController.startNewTrip);
 
 /**
  * @route   GET /api/v1/chatbot/conversations
