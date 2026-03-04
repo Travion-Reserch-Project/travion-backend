@@ -4,7 +4,7 @@
  */
 
 import Location from '../models/Location';
-import { AppError } from '../../../../shared/middleware/errorHandler';
+import { AppError } from '../middleware/errorHandler';
 
 export interface LocationWithImages {
   name: string;
@@ -138,7 +138,7 @@ class LocationServiceClass {
       .limit(limit)
       .lean();
 
-    return locations.map((loc: any) => ({
+    return locations.map((loc) => ({
       name: loc.name,
       imageUrls: loc.imageUrls || [],
       coordinates: {
@@ -170,7 +170,7 @@ class LocationServiceClass {
     ]);
 
     return {
-      locations: locations.map((loc: any) => ({
+      locations: locations.map((loc) => ({
         name: loc.name,
         imageUrls: loc.imageUrls || [],
         coordinates: {
