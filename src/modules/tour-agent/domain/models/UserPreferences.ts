@@ -52,10 +52,10 @@ export interface ITravelStylePreferences {
  * Based on AI Engine recommendation system dimensions
  */
 export interface IPreferenceScores {
-  history: number;     // 0-1: Interest in historical/cultural sites (Sigiriya, Anuradhapura)
-  adventure: number;   // 0-1: Interest in adventure activities (rafting, hiking)
-  nature: number;      // 0-1: Interest in nature and wildlife (Yala, Sinharaja)
-  relaxation: number;  // 0-1: Interest in relaxation and leisure (beaches, spas)
+  history: number; // 0-1: Interest in historical/cultural sites (Sigiriya, Anuradhapura)
+  adventure: number; // 0-1: Interest in adventure activities (rafting, hiking)
+  nature: number; // 0-1: Interest in nature and wildlife (Yala, Sinharaja)
+  relaxation: number; // 0-1: Interest in relaxation and leisure (beaches, spas)
 }
 
 /**
@@ -174,14 +174,18 @@ const travelStyleSchema = new Schema<ITravelStylePreferences>(
       type: Boolean,
       default: false,
     },
-    dietaryRestrictions: [{
-      type: String,
-      trim: true,
-    }],
-    transportationPreferences: [{
-      type: String,
-      trim: true,
-    }],
+    dietaryRestrictions: [
+      {
+        type: String,
+        trim: true,
+      },
+    ],
+    transportationPreferences: [
+      {
+        type: String,
+        trim: true,
+      },
+    ],
     accommodationType: {
       type: String,
       enum: ['hotel', 'hostel', 'resort', 'homestay', 'any'],
@@ -315,18 +319,24 @@ const userPreferencesSchema = new Schema<IUserPreferences>(
       type: [searchHistoryEntrySchema],
       default: [],
     },
-    favoriteCategories: [{
-      type: String,
-      trim: true,
-    }],
-    avoidCategories: [{
-      type: String,
-      trim: true,
-    }],
-    visitedLocations: [{
-      type: String,
-      trim: true,
-    }],
+    favoriteCategories: [
+      {
+        type: String,
+        trim: true,
+      },
+    ],
+    avoidCategories: [
+      {
+        type: String,
+        trim: true,
+      },
+    ],
+    visitedLocations: [
+      {
+        type: String,
+        trim: true,
+      },
+    ],
     homeLocation: {
       type: homeLocationSchema,
     },

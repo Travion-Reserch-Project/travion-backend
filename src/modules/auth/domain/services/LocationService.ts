@@ -3,7 +3,7 @@
  * Service for managing location data including images
  */
 
-import Location from '../models/Location';
+import Location from '../../../tour-agent/domain/models/Location';
 import { AppError } from '../middleware/errorHandler';
 
 export interface LocationWithImages {

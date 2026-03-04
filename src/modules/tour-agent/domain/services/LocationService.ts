@@ -1,80 +1,82 @@
 /**
  * Location Service
- * Handles location data and image management
+ * Service for managing location data including images
  */
 
-import Location from '../../../auth/domain/models/Location';
+import Location from '../models/Location';
+import { AppError } from '../middleware/errorHandler';
 
-export class LocationService {
+export interface LocationWithImages {
+  name: string;
+  imageUrls: string[];
+  coordinates: {
+    latitude: number;
+    longitude: number;
+  };
+  preferenceScores: {
+    history: number;
+    adventure: number;
+    nature: number;
+    relaxation: number;
+  };
+  isOutdoor: boolean;
+}
+
+export interface LocationImagesResponse {
+  name: string;
+  imageUrls: string[];
+  primaryImage: string | null;
+  totalImages: number;
+}
+
+class LocationServiceClass {
   /**
-   * Get images for a single location by name
+   * Get location images by name (fuzzy search)
    */
-  static async getLocationImages(name: string): Promise<{
-    name: string;
-    imageUrls: string[];
-    primaryImage: string | null;
-    totalImages: number;
-  }> {
-    const location = await Location.findOne({
-      name: { $regex: new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') },
-    }).lean();
+  async getLocationImages(locationName: string): Promise<LocationImagesResponse> {
+    // Try exact match first
+    let location = await Location.findOne({ name: locationName });
 
+    // If no exact match, try case-insensitive search
     if (!location) {
-      return {
-        name,
-        imageUrls: [],
-        primaryImage: null,
-        totalImages: 0,
-      };
+      location = await Location.findOne({
+        name: { $regex: new RegExp(`^${locationName}$`, 'i') },
+      });
     }
 
-    const validUrls = (location.imageUrls || []).filter(
-      (url: string) => url && url !== 'N/A' && url.startsWith('http')
-    );
+    // If still no match, try partial match
+    if (!location) {
+      location = await Location.findOne({
+        name: { $regex: new RegExp(locationName, 'i') },
+      });
+    }
+
+    if (!location) {
+      throw new AppError(`Location not found: ${locationName}`, 404);
+    }
 
     return {
       name: location.name,
-      imageUrls: validUrls,
-      primaryImage: validUrls.length > 0 ? validUrls[0] : null,
-      totalImages: validUrls.length,
+      imageUrls: location.imageUrls || [],
+      primaryImage: location.imageUrls?.[0] || null,
+      totalImages: location.imageUrls?.length || 0,
     };
   }
 
   /**
-   * Get images for multiple locations by name (bulk)
+   * Get multiple locations images by names
    */
-  static async getMultipleLocationImages(names: string[]): Promise<Map<string, any>> {
-    // Use $or with case-insensitive regex for each name
-    const orConditions = names.map((name) => ({
-      name: { $regex: new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') },
-    }));
+  async getMultipleLocationImages(
+    locationNames: string[]
+  ): Promise<Map<string, LocationImagesResponse>> {
+    const results = new Map<string, LocationImagesResponse>();
 
-    const locations = await Location.find({
-      $or: orConditions,
-    }).lean();
-
-    // Build a map of lowercase name -> location for fast lookup
-    const locationMap = new Map<string, any>();
-    for (const loc of locations) {
-      locationMap.set(loc.name.toLowerCase(), loc);
-    }
-
-    const results = new Map<string, any>();
-
-    for (const name of names) {
-      const location = locationMap.get(name.toLowerCase());
-
-      if (location) {
-        const validUrls = (location.imageUrls || []).filter(
-          (url: string) => url && url !== 'N/A' && url.startsWith('http')
-        );
-        results.set(name, {
-          name: location.name,
-          imageUrls: validUrls,
-          primaryImage: validUrls.length > 0 ? validUrls[0] : null,
-          totalImages: validUrls.length,
-        });
-      } else {
+    for (const name of locationNames) {
+      try {
+        const images = await this.getLocationImages(name);
+        results.set(name, images);
+      } catch {
+        // If location not found, add empty result
         results.set(name, {
           name,
           imageUrls: [],
@@ -88,84 +90,106 @@ export class LocationService {
   }
 
   /**
-   * Search locations by name query
+   * Get location with full details
    */
-  static async searchLocations(query: string, limit: number = 10): Promise<any[]> {
+  async getLocationByName(locationName: string): Promise<LocationWithImages | null> {
+    let location = await Location.findOne({ name: locationName });
+
+    if (!location) {
+      location = await Location.findOne({
+        name: { $regex: new RegExp(`^${locationName}$`, 'i') },
+      });
+    }
+
+    if (!location) {
+      location = await Location.findOne({
+        name: { $regex: new RegExp(locationName, 'i') },
+      });
+    }
+
+    if (!location) {
+      return null;
+    }
+
+    return {
+      name: location.name,
+      imageUrls: location.imageUrls || [],
+      coordinates: {
+        latitude: location.coordinates.latitude,
+        longitude: location.coordinates.longitude,
+      },
+      preferenceScores: {
+        history: location.preferenceScores.history,
+        adventure: location.preferenceScores.adventure,
+        nature: location.preferenceScores.nature,
+        relaxation: location.preferenceScores.relaxation,
+      },
+      isOutdoor: location.isOutdoor,
+    };
+  }
+
+  /**
+   * Search locations by name
+   */
+  async searchLocations(query: string, limit: number = 10): Promise<LocationWithImages[]> {
     const locations = await Location.find({
-      name: { $regex: new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i') },
+      name: { $regex: new RegExp(query, 'i') },
     })
       .limit(limit)
       .lean();
 
-    return locations.map((loc: any) => ({
+    return locations.map((loc) => ({
       name: loc.name,
-      coordinates: loc.coordinates,
-      preferenceScores: loc.preferenceScores,
+      imageUrls: loc.imageUrls || [],
+      coordinates: {
+        latitude: loc.coordinates.latitude,
+        longitude: loc.coordinates.longitude,
+      },
+      preferenceScores: {
+        history: loc.preferenceScores.history,
+        adventure: loc.preferenceScores.adventure,
+        nature: loc.preferenceScores.nature,
+        relaxation: loc.preferenceScores.relaxation,
+      },
       isOutdoor: loc.isOutdoor,
-      imageUrls: (loc.imageUrls || []).filter((url: string) => url && url !== 'N/A'),
     }));
   }
 
   /**
-   * Get all locations (paginated)
+   * Get all locations (with pagination)
    */
-  static async getAllLocations(page: number = 1, limit: number = 20): Promise<any> {
+  async getAllLocations(
+    page: number = 1,
+    limit: number = 20
+  ): Promise<{ locations: LocationWithImages[]; total: number; pages: number }> {
     const skip = (page - 1) * limit;
+
     const [locations, total] = await Promise.all([
       Location.find().skip(skip).limit(limit).lean(),
       Location.countDocuments(),
     ]);
 
     return {
-      locations: locations.map((loc: any) => ({
+      locations: locations.map((loc) => ({
         name: loc.name,
-        coordinates: loc.coordinates,
-        preferenceScores: loc.preferenceScores,
+        imageUrls: loc.imageUrls || [],
+        coordinates: {
+          latitude: loc.coordinates.latitude,
+          longitude: loc.coordinates.longitude,
+        },
+        preferenceScores: {
+          history: loc.preferenceScores.history,
+          adventure: loc.preferenceScores.adventure,
+          nature: loc.preferenceScores.nature,
+          relaxation: loc.preferenceScores.relaxation,
+        },
         isOutdoor: loc.isOutdoor,
-        imageUrls: (loc.imageUrls || []).filter((url: string) => url && url !== 'N/A'),
       })),
       total,
       pages: Math.ceil(total / limit),
     };
   }
-
-  /**
-   * Get a single location by name
-   */
-  static async getLocationByName(name: string): Promise<any | null> {
-    const location = await Location.findOne({
-      name: { $regex: new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') },
-    }).lean();
-
-    if (!location) return null;
-
-    return {
-      name: location.name,
-      coordinates: location.coordinates,
-      preferenceScores: location.preferenceScores,
-      isOutdoor: location.isOutdoor,
-      imageUrls: (location.imageUrls || []).filter((url: string) => url && url !== 'N/A'),
-    };
-  }
-
-  /**
-   * Proxy an image URL (fetch with browser User-Agent)
-   */
-  static async imageProxy(url: string): Promise<Buffer> {
-    const response = await fetch(url, {
-      headers: {
-        'User-Agent':
-          'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
-        Accept: 'image/*,*/*;q=0.8',
-      },
-      redirect: 'follow',
-    });
-
-    if (!response.ok) {
-      throw new Error(`Failed to fetch image: ${response.statusText}`);
-    }
-
-    const arrayBuffer = await response.arrayBuffer();
-    return Buffer.from(arrayBuffer);
-  }
 }
+
+export const LocationService = new LocationServiceClass();
+export default LocationService;
