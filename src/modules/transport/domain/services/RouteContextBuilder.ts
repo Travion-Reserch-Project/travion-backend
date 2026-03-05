@@ -12,12 +12,15 @@ export interface StaticRouteData {
   comfort_score: number; // 0-1
   base_fare_lkr: number;
   estimated_duration_min: number;
+  polyline?: string; // Encoded polyline for map rendering
   navigation_steps?: Array<{
     instruction: string;
     maneuver?: string;
     duration: number;
     distance: number;
     travel_mode: string;
+    start_location?: { lat: number; lng: number };
+    end_location?: { lat: number; lng: number };
   }>;
 }
 

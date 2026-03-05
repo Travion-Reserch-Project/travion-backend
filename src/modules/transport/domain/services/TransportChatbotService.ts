@@ -44,6 +44,25 @@ export interface ChatResponse {
     }>;
     transport_recommendations?: unknown;
     weather_info?: unknown;
+    map_data?: {
+      origin: { lat: number; lng: number };
+      destination: { lat: number; lng: number };
+      routes: Array<{
+        route_id: string;
+        transport_type: string;
+        polyline?: string;
+        navigation_steps?: Array<{
+          instruction: string;
+          maneuver?: string;
+          duration: number;
+          distance: number;
+          travel_mode: string;
+          start_location?: { lat: number; lng: number };
+          end_location?: { lat: number; lng: number };
+        }>;
+        color: string;
+      }>;
+    };
     processing_time_ms: number;
   };
   suggestions?: string[];
@@ -126,6 +145,47 @@ export class TransportChatbotService {
         confidence: intent.confidence,
       });
 
+      const isRouteIntent = intent.intent === 'route_query';
+      let hadPendingRouteContext = false;
+
+      if (isRouteIntent) {
+        // Check and merge with pending route query context only for route intents
+        let originRestoredFromContext = false;
+        let destinationRestoredFromContext = false;
+        const pendingQuery = this.conversationService.getPendingRouteQuery(activeConversation);
+
+        if (pendingQuery) {
+          hadPendingRouteContext = true;
+          logger.info('Found pending route query context:', pendingQuery);
+
+          if (!intent.entities.origin && pendingQuery.origin) {
+            intent.entities.origin = pendingQuery.origin.name;
+            originRestoredFromContext = true;
+            logger.info('Restored origin from context:', pendingQuery.origin.name);
+          }
+
+          if (!intent.entities.destination && pendingQuery.destination) {
+            intent.entities.destination = pendingQuery.destination.name;
+            destinationRestoredFromContext = true;
+            logger.info('Restored destination from context:', pendingQuery.destination.name);
+          }
+        }
+
+        // Save NEW route entities for follow-up route turns only
+        const hasNewOrigin = Boolean(intent.entities.origin && !originRestoredFromContext);
+        const hasNewDestination = Boolean(
+          intent.entities.destination && !destinationRestoredFromContext
+        );
+
+        if (hasNewOrigin || hasNewDestination) {
+          await this.saveToPendingContext(
+            activeConversation,
+            hasNewOrigin ? intent.entities.origin : undefined,
+            hasNewDestination ? intent.entities.destination : undefined
+          );
+        }
+      }
+
       // Process based on intent
       let response: ChatResponse;
       switch (intent.intent) {
@@ -143,6 +203,18 @@ export class TransportChatbotService {
           break;
         default:
           response = await this.handleGeneralQuestion(activeConversation, request, recentMessages);
+      }
+
+      // Clear pending context after a successful full route answer
+      if (isRouteIntent && response.message_type === 'route_suggestion') {
+        logger.info('Route suggestion completed - clearing pending route context');
+        await this.conversationService.clearPendingRouteQuery(String(activeConversation._id));
+      }
+
+      // Clear stale route context when user asks a non-route question
+      if (!isRouteIntent && hadPendingRouteContext) {
+        logger.info('Non-route intent with stale route context - clearing pending route context');
+        await this.conversationService.clearPendingRouteQuery(String(activeConversation._id));
       }
 
       // Update processing time
@@ -166,6 +238,64 @@ export class TransportChatbotService {
     } catch (error) {
       logger.error('Error processing chat query:', error);
       throw error;
+    }
+  }
+
+  /**
+   * Save location mentions to pending context for cross-message queries
+   */
+  private async saveToPendingContext(
+    conversation: IConversation,
+    origin?: string,
+    destination?: string
+  ): Promise<void> {
+    try {
+      let savedOrigin: any = undefined;
+      let savedDestination: any = undefined;
+
+      // Resolve origin if provided
+      if (origin) {
+        const originCity = await this.transportService.findCity({ cityName: origin });
+        if (originCity) {
+          savedOrigin = {
+            name: origin,
+            city_id: originCity.city_id,
+            coordinates: {
+              lat: originCity.location.coordinates[1],
+              lng: originCity.location.coordinates[0],
+            },
+          };
+          logger.info('Saving origin to pending context:', origin);
+        }
+      }
+
+      // Resolve destination if provided
+      if (destination) {
+        const destCity = await this.transportService.findCity({ cityName: destination });
+        if (destCity) {
+          savedDestination = {
+            name: destination,
+            city_id: destCity.city_id,
+            coordinates: {
+              lat: destCity.location.coordinates[1],
+              lng: destCity.location.coordinates[0],
+            },
+          };
+          logger.info('Saving destination to pending context:', destination);
+        }
+      }
+
+      // Update pending context if we have anything to save
+      if (savedOrigin || savedDestination) {
+        await this.conversationService.updatePendingRouteQuery(
+          String(conversation._id),
+          savedOrigin,
+          savedDestination
+        );
+      }
+    } catch (error) {
+      logger.warn('Error saving to pending context:', error);
+      // Non-critical error, continue processing
     }
   }
 
@@ -633,6 +763,7 @@ Return JSON with: intent, origin, destination, transport_type`;
             scenic_score: 0.6,
             comfort_score: 0.7,
             operator_name: 'Public Transit',
+            polyline: route.polyline, // Encoded polyline for map rendering
             navigation_steps: route.steps, // Include turn-by-turn navigation
           });
         });
@@ -650,7 +781,8 @@ Return JSON with: intent, origin, destination, transport_type`;
             has_transfer: false,
             scenic_score: 0.7,
             comfort_score: 0.9,
-            operator_name: 'Private Car/Taxi',
+            operator_name: 'PickMe/Uber',
+            polyline: route.polyline, // Encoded polyline for map rendering
             navigation_steps: route.steps, // Include turn-by-turn navigation
           });
         });
@@ -737,7 +869,7 @@ Return JSON with: intent, origin, destination, transport_type`;
               has_transfer: false,
               scenic_score: 0.7,
               comfort_score: 0.9,
-              operator_name: 'Private Car/Taxi',
+              operator_name: 'PickMe/Uber',
             }
           );
 
@@ -782,12 +914,13 @@ Return JSON with: intent, origin, destination, transport_type`;
 
         // Infer user preferences from message and rank routes
         const userWeights = this.rankingService.guessUserWeights(request.message);
+        const departureTime = this.resolveDepartureTime(intent.entities.time, request.message);
 
         // Pass coordinates to enable ML ranking
         const rankedRoutes = await this.rankingService.rankRoutes(validContexts, userWeights, {
           origin: originCoords,
           destination: destCoords,
-          departureTime: new Date(), // Use current time or parse from request
+          departureTime,
         });
 
         // Generate natural language explanation from top routes (fallback if LLM unavailable)
@@ -805,7 +938,11 @@ Return JSON with: intent, origin, destination, transport_type`;
         }
 
         // Format detailed response with top 3 routes
-        const detailedResponse = this.formatIntelligentRouteResponse(rankedRoutes, explanation);
+        const detailedResponse = this.formatIntelligentRouteResponse(
+          rankedRoutes,
+          explanation,
+          departureTime
+        );
 
         // Update conversation context
         await this.conversationService.updateContext(String(conversation._id), {
@@ -843,6 +980,17 @@ Return JSON with: intent, origin, destination, transport_type`;
               ranking_weights: userWeights,
               ranked_routes: rankedRoutes.slice(0, 3),
             },
+            map_data: {
+              origin: originCoords,
+              destination: destCoords,
+              routes: rankedRoutes.slice(0, 3).map((route) => ({
+                route_id: route.route_id,
+                transport_type: route.transport_type,
+                polyline: route.static.polyline,
+                navigation_steps: route.static.navigation_steps,
+                color: this.getRouteColor(route.transport_type),
+              })),
+            },
             processing_time_ms: 0,
           },
           suggestions: [
@@ -874,8 +1022,35 @@ Return JSON with: intent, origin, destination, transport_type`;
   /**
    * Format intelligent route response with ranked options
    */
-  private formatIntelligentRouteResponse(rankedRoutes: RankedRoute[], explanation: string): string {
+  private formatIntelligentRouteResponse(
+    rankedRoutes: RankedRoute[],
+    explanation: string,
+    departureTime: Date
+  ): string {
     let response = `${explanation}\n\n`;
+
+    const topRoute = rankedRoutes[0];
+    const isNightWindow = this.isNightTravelWindow(departureTime);
+    const shortTrip = topRoute ? topRoute.dynamic.distance_km < 25 : false;
+
+    response += '**Route Summary:**\n';
+    if (topRoute) {
+      response += `• Departure time considered: ${departureTime.toLocaleTimeString('en-LK', {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: true,
+      })} (${isNightWindow ? 'night window' : 'day window'})\n`;
+      response += `• Estimated trip distance: ${topRoute.dynamic.distance_km.toFixed(1)} km\n`;
+      if (isNightWindow && shortTrip) {
+        response +=
+          '• Reasoning: For trips under 25 km during 8:00 PM–5:00 AM, ride-hailing (PickMe/Uber) is prioritized because public transport availability is less reliable.\n';
+      } else {
+        response +=
+          '• Reasoning: Ranked by travel time, fare, comfort, safety, weather, traffic, and ML confidence.\n';
+      }
+    }
+
+    response += '\n';
 
     // Show top 3 routes with detailed metrics
     if (rankedRoutes.length > 0) {
@@ -884,10 +1059,10 @@ Return JSON with: intent, origin, destination, transport_type`;
       rankedRoutes.slice(0, 3).forEach((route, index) => {
         const medalEmoji = index === 0 ? '🥇' : index === 1 ? '🥈' : '🥉';
         response += `${medalEmoji} **Option ${index + 1}: ${route.transport_type.toUpperCase()}**\n`;
+        response += `   Provider: ${route.static.operator_name}\n`;
         response += `   Score: ${(route.score * 100).toFixed(0)}/100\n`;
         response += `   ⏱ Duration: ${route.dynamic.duration_min} min\n`;
         response += `   📏 Distance: ${route.dynamic.distance_km.toFixed(1)} km\n`;
-        response += `   💰 Fare: LKR ${route.static.base_fare_lkr.toFixed(0)}\n`;
 
         // Show key metrics
         const metrics = [];
@@ -898,6 +1073,10 @@ Return JSON with: intent, origin, destination, transport_type`;
 
         if (metrics.length > 0) {
           response += `   ${metrics.join(' • ')}\n`;
+        }
+
+        if (route.recommendation_reason) {
+          response += `   🧠 Why this rank: ${route.recommendation_reason}\n`;
         }
 
         // Show turn-by-turn navigation for the top route only
@@ -925,6 +1104,54 @@ Return JSON with: intent, origin, destination, transport_type`;
     response +=
       '💡 *Tip: You can ask me for cheaper options, faster routes, or more comfortable transport!*';
     return response;
+  }
+
+  private resolveDepartureTime(extractedTime?: string, message?: string): Date {
+    const baseDate = new Date();
+    const candidates = [extractedTime, message].filter((v): v is string => Boolean(v));
+
+    for (const text of candidates) {
+      const match = text.match(/\b(1[0-2]|0?[1-9])(?::([0-5][0-9]))?\s*(am|pm)\b/i);
+      if (!match) {
+        continue;
+      }
+
+      let hour = Number(match[1]);
+      const minute = Number(match[2] || '0');
+      const period = match[3].toLowerCase();
+
+      if (period === 'pm' && hour !== 12) {
+        hour += 12;
+      }
+      if (period === 'am' && hour === 12) {
+        hour = 0;
+      }
+
+      const parsed = new Date(baseDate);
+      parsed.setHours(hour, minute, 0, 0);
+      return parsed;
+    }
+
+    return baseDate;
+  }
+
+  private isNightTravelWindow(departureTime: Date): boolean {
+    const hour = departureTime.getHours();
+    return hour >= 20 || hour < 5;
+  }
+
+  /**
+   * Get color for route type (for map rendering)
+   */
+  private getRouteColor(transportType: string): string {
+    const colorMap: Record<string, string> = {
+      bus: '#3B82F6', // Blue
+      train: '#10B981', // Green
+      car: '#F59E0B', // Amber
+      taxi: '#F59E0B', // Amber
+      tuk_tuk: '#8B5CF6', // Purple
+    };
+    return colorMap[transportType.toLowerCase()] || '#6B7280'; // Gray default
   }
 
   /**
@@ -1041,15 +1268,23 @@ Return JSON with: intent, origin, destination, transport_type`;
       };
     }
 
-    let message = `📍 **${city.name.en}**\n\n`;
-    message += `**Transport Access:**\n`;
-    message += `🚂 Railway: ${city.transport_access.has_railway ? 'Available' : 'Not available'} (${city.transport_stats.railway_stations_count} stations)\n`;
-    message += `🚌 Bus: ${city.transport_access.has_bus ? 'Available' : 'Not available'} (${city.transport_stats.bus_stations_count} stations)\n`;
+    let message = `I see you mentioned ${city.name.en}! 🌍\n\n`;
+    message += `I can help you with:\n`;
+    message += `• Getting TO ${city.name.en} - just tell me where you're starting from\n`;
+    message += `• Traveling FROM ${city.name.en} - let me know your destination\n`;
+    message += `• Weather conditions in ${city.name.en}\n`;
+    message += `• Information about the city\n\n`;
+    message += `What would you like to know?`;
 
     return {
       conversation_id: String(conversation._id),
       message,
-      message_type: 'location_info',
+      message_type: 'text',
+      suggestions: [
+        `How to get to ${city.name.en}?`,
+        `Routes from ${city.name.en}`,
+        `Weather in ${city.name.en}`,
+      ],
     };
   }
 
@@ -1174,5 +1409,50 @@ Be friendly, concise, and culturally aware. If you don't know something, admit i
     conversationId: string
   ): Promise<{ conversation: IConversation; messages: IMessage[] } | null> {
     return this.conversationService.getConversation(conversationId);
+  }
+
+  /**
+   * Start a fresh trip conversation (used by "New Trip" button)
+   */
+  async startNewTripConversation(
+    userId: string,
+    title?: string
+  ): Promise<{
+    conversation_id: string;
+    status: 'started';
+    ended_previous_conversation: boolean;
+    title: string;
+    created_at: Date;
+  }> {
+    const activeConversation = await this.conversationService.getActiveConversation(userId);
+
+    let endedPreviousConversation = false;
+    if (activeConversation) {
+      await this.conversationService.endConversation(String(activeConversation._id));
+      endedPreviousConversation = true;
+    }
+
+    const now = new Date();
+    const defaultTitle = `Trip ${now.toLocaleDateString('en-LK')} ${now.toLocaleTimeString(
+      'en-LK',
+      {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: true,
+      }
+    )}`;
+
+    const newConversation = await this.conversationService.createConversation({
+      user_id: userId,
+      title: title?.trim() || defaultTitle,
+    });
+
+    return {
+      conversation_id: String(newConversation._id),
+      status: 'started',
+      ended_previous_conversation: endedPreviousConversation,
+      title: newConversation.title || defaultTitle,
+      created_at: newConversation.createdAt,
+    };
   }
 }
