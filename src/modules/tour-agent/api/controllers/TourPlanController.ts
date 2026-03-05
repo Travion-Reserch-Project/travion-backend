@@ -38,7 +38,17 @@ export class TourPlanController {
         throw new AppError('User not authenticated', 401);
       }
 
-      const { selectedLocations, startDate, endDate, preferences, message } = req.body;
+      const {
+        selectedLocations,
+        startDate,
+        endDate,
+        preferences,
+        message,
+        selectedRestaurantIds,
+        selectedAccommodationIds,
+        skipRestaurants,
+        skipAccommodations,
+      } = req.body;
 
       logger.info(`User ${userId} generating tour plan for ${selectedLocations.length} locations`);
 
@@ -90,7 +100,11 @@ export class TourPlanController {
         preferences,
         message,
         userId,
-        userPreferences
+        userPreferences,
+        selectedRestaurantIds,
+        selectedAccommodationIds,
+        skipRestaurants,
+        skipAccommodations
       );
 
       logger.info(`Tour plan generated successfully with thread ${response.thread_id}`);
@@ -109,6 +123,19 @@ export class TourPlanController {
           clarificationQuestion: response.clarification_question,
           culturalTips: response.cultural_tips,
           events: response.events,
+          finalItinerary: response.final_itinerary,
+          weatherData: response.weather_data,
+          interruptReason: response.interrupt_reason,
+          restaurantRecommendations: response.restaurant_recommendations,
+          accommodationRecommendations: response.accommodation_recommendations,
+          // ── HITL Interrupt Fields ──
+          pendingUserSelection: response.pending_user_selection ?? false,
+          selectionCards: response.selection_cards,
+          searchCandidates: response.search_candidates,
+          mcpSearchMetadata: response.mcp_search_metadata,
+          weatherInterrupt: response.weather_interrupt ?? false,
+          weatherPromptMessage: response.weather_prompt_message,
+          weatherPromptOptions: response.weather_prompt_options,
         },
       });
     } catch (error) {
@@ -131,7 +158,18 @@ export class TourPlanController {
         throw new AppError('User not authenticated', 401);
       }
 
-      const { threadId, message, selectedLocations, startDate, endDate, preferences } = req.body;
+      const {
+        threadId,
+        message,
+        selectedLocations,
+        startDate,
+        endDate,
+        preferences,
+        selectedRestaurantIds,
+        selectedAccommodationIds,
+        skipRestaurants,
+        skipAccommodations,
+      } = req.body;
 
       logger.info(`User ${userId} refining tour plan with thread ${threadId}`);
 
@@ -180,7 +218,11 @@ export class TourPlanController {
         endDate,
         preferences,
         userId,
-        userPreferences
+        userPreferences,
+        selectedRestaurantIds,
+        selectedAccommodationIds,
+        skipRestaurants,
+        skipAccommodations
       );
 
       logger.info(`Tour plan refined successfully`);
@@ -199,6 +241,19 @@ export class TourPlanController {
           clarificationQuestion: response.clarification_question,
           culturalTips: response.cultural_tips,
           events: response.events,
+          finalItinerary: response.final_itinerary,
+          weatherData: response.weather_data,
+          interruptReason: response.interrupt_reason,
+          restaurantRecommendations: response.restaurant_recommendations,
+          accommodationRecommendations: response.accommodation_recommendations,
+          // ── HITL Interrupt Fields ──
+          pendingUserSelection: response.pending_user_selection ?? false,
+          selectionCards: response.selection_cards,
+          searchCandidates: response.search_candidates,
+          mcpSearchMetadata: response.mcp_search_metadata,
+          weatherInterrupt: response.weather_interrupt ?? false,
+          weatherPromptMessage: response.weather_prompt_message,
+          weatherPromptOptions: response.weather_prompt_options,
         },
       });
     } catch (error) {
@@ -319,6 +374,143 @@ export class TourPlanController {
           threadId,
           status: 'active',
           message: 'Session is active. You can continue refining the plan.',
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  /**
+   * Search for hotels, restaurants, or activities near a location
+   * POST /tour-plan/hotel-search
+   */
+  searchHotels = async (
+    req: AuthenticatedRequest,
+    res: Response,
+    next: NextFunction
+  ): Promise<void> => {
+    try {
+      const { query, location } = req.body;
+
+      logger.info(`Hotel search: "${query}" near "${location || 'auto-detect'}"`);
+
+      const response = await aiEngineService.searchHotels(query, location);
+
+      res.status(200).json({
+        success: true,
+        data: response,
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  /**
+   * Resume graph after user selects a search candidate (HITL)
+   * POST /tour-plan/resume-selection
+   */
+  resumeSelection = async (
+    req: AuthenticatedRequest,
+    res: Response,
+    next: NextFunction
+  ): Promise<void> => {
+    try {
+      const userId = req.user?.userId;
+      if (!userId) {
+        throw new AppError('User not authenticated', 401);
+      }
+
+      const { threadId, selectedCandidateId } = req.body;
+
+      logger.info(
+        `User ${userId} resuming selection — thread=${threadId}, candidate=${selectedCandidateId}`
+      );
+
+      const response = await aiEngineService.resumeSelection(threadId, selectedCandidateId, userId);
+
+      res.status(200).json({
+        success: true,
+        data: {
+          threadId: response.thread_id,
+          response: response.response,
+          itinerary: response.itinerary,
+          metadata: response.metadata,
+          constraints: response.constraints,
+          warnings: response.warnings,
+          tips: response.tips,
+          stepResults: response.step_results,
+          clarificationQuestion: response.clarification_question,
+          culturalTips: response.cultural_tips,
+          events: response.events,
+          finalItinerary: response.final_itinerary,
+          weatherData: response.weather_data,
+          interruptReason: response.interrupt_reason,
+          restaurantRecommendations: response.restaurant_recommendations,
+          accommodationRecommendations: response.accommodation_recommendations,
+          pendingUserSelection: response.pending_user_selection ?? false,
+          selectionCards: response.selection_cards,
+          searchCandidates: response.search_candidates,
+          mcpSearchMetadata: response.mcp_search_metadata,
+          weatherInterrupt: response.weather_interrupt ?? false,
+          weatherPromptMessage: response.weather_prompt_message,
+          weatherPromptOptions: response.weather_prompt_options,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  /**
+   * Resume graph after user decides on weather action (HITL)
+   * POST /tour-plan/resume-weather
+   */
+  resumeWeather = async (
+    req: AuthenticatedRequest,
+    res: Response,
+    next: NextFunction
+  ): Promise<void> => {
+    try {
+      const userId = req.user?.userId;
+      if (!userId) {
+        throw new AppError('User not authenticated', 401);
+      }
+
+      const { threadId, userWeatherChoice } = req.body;
+
+      logger.info(
+        `User ${userId} resuming weather — thread=${threadId}, choice=${userWeatherChoice}`
+      );
+
+      const response = await aiEngineService.resumeWeather(threadId, userWeatherChoice, userId);
+
+      res.status(200).json({
+        success: true,
+        data: {
+          threadId: response.thread_id,
+          response: response.response,
+          itinerary: response.itinerary,
+          metadata: response.metadata,
+          constraints: response.constraints,
+          warnings: response.warnings,
+          tips: response.tips,
+          stepResults: response.step_results,
+          clarificationQuestion: response.clarification_question,
+          culturalTips: response.cultural_tips,
+          events: response.events,
+          finalItinerary: response.final_itinerary,
+          weatherData: response.weather_data,
+          interruptReason: response.interrupt_reason,
+          restaurantRecommendations: response.restaurant_recommendations,
+          accommodationRecommendations: response.accommodation_recommendations,
+          pendingUserSelection: response.pending_user_selection ?? false,
+          selectionCards: response.selection_cards,
+          searchCandidates: response.search_candidates,
+          mcpSearchMetadata: response.mcp_search_metadata,
+          weatherInterrupt: response.weather_interrupt ?? false,
+          weatherPromptMessage: response.weather_prompt_message,
+          weatherPromptOptions: response.weather_prompt_options,
         },
       });
     } catch (error) {
