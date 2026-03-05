@@ -11,7 +11,7 @@ import {
   ISearchHistoryEntry,
   IPreferenceScores,
   ITravelStylePreferences,
-} from '../../../tour-agent/domain/models/UserPreferences';
+} from '../models/UserPreferences';
 
 export class UserPreferencesRepository {
   // ============================================================================

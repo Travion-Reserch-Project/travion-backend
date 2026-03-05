@@ -10,7 +10,7 @@ import {
   IItineraryItem,
   ITripConstraint,
   IAIMetadata,
-} from '../../../tour-agent/domain/models/SavedTrip';
+} from '../models/SavedTrip';
 
 export interface CreateTripData {
   userId: string;

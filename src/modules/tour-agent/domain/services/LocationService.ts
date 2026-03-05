@@ -4,7 +4,7 @@
  */
 
 import Location from '../models/Location';
-import { AppError } from '../middleware/errorHandler';
+import { AppError } from '../../../../shared/middleware/errorHandler';
 
 export interface LocationWithImages {
   name: string;

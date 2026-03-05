@@ -4,12 +4,7 @@
  */
 
 import mongoose from 'mongoose';
-import {
-  ChatSession,
-  IChatSession,
-  IChatMessage,
-  ISessionContext,
-} from '../../../tour-agent/domain/models/ChatSession';
+import { ChatSession, IChatSession, IChatMessage, ISessionContext } from '../models/ChatSession';
 
 export interface CreateSessionData {
   userId: string;
