@@ -5,7 +5,11 @@
 
 import { AppError } from '../middleware/errorHandler';
 import { ChatSessionRepository, CreateSessionData } from '../repositories/ChatSessionRepository';
-import { IChatSession, IChatMessage, ISessionContext } from '../models/ChatSession';
+import {
+  IChatSession,
+  IChatMessage,
+  ISessionContext,
+} from '../../../tour-agent/domain/models/ChatSession';
 import { AIEngineService } from './AIEngineService';
 import { UserPreferencesRepository } from '../repositories/UserPreferencesRepository';
 
@@ -125,16 +129,11 @@ export class ChatSessionService {
     };
 
     // Call AI Engine with userId for user-specific chat isolation
-    const aiResponse = await this.aiService.chat(
-      message,
-      sessionId,
-      session.context,
-      userId
-    );
+    const aiResponse = await this.aiService.chat(message, sessionId, session.context, userId);
 
     // Add assistant message with metadata
     // Map constraints from snake_case (AI Engine) to camelCase (our model)
-    const mappedConstraints = aiResponse.constraints?.map(c => ({
+    const mappedConstraints = aiResponse.constraints?.map((c) => ({
       constraintType: c.constraint_type,
       description: c.description,
       severity: c.severity,
@@ -154,11 +153,10 @@ export class ChatSessionService {
     };
 
     // Save both messages
-    const updatedSession = await this.repository.addMessages(
-      sessionId,
-      userId,
-      [userMessage, assistantMessage]
-    );
+    const updatedSession = await this.repository.addMessages(sessionId, userId, [
+      userMessage,
+      assistantMessage,
+    ]);
 
     if (!updatedSession) {
       throw new AppError('Failed to save messages', 500);
@@ -292,11 +290,7 @@ export class ChatSessionService {
   /**
    * Update session title
    */
-  async updateTitle(
-    sessionId: string,
-    userId: string,
-    title: string
-  ): Promise<IChatSession> {
+  async updateTitle(sessionId: string, userId: string, title: string): Promise<IChatSession> {
     if (!title || title.trim().length === 0) {
       throw new AppError('Title cannot be empty', 400);
     }
@@ -315,11 +309,7 @@ export class ChatSessionService {
   /**
    * Link session to a saved trip
    */
-  async linkToTrip(
-    sessionId: string,
-    userId: string,
-    tripId: string
-  ): Promise<IChatSession> {
+  async linkToTrip(sessionId: string, userId: string, tripId: string): Promise<IChatSession> {
     await this.getSession(sessionId, userId); // Verify ownership
 
     const session = await this.repository.linkToTrip(sessionId, userId, tripId);
@@ -399,11 +389,7 @@ export class ChatSessionService {
       preferences: preferences?.preferenceScores,
     };
 
-    return await this.repository.findOrCreateLocationSession(
-      userId,
-      locationName,
-      fullContext
-    );
+    return await this.repository.findOrCreateLocationSession(userId, locationName, fullContext);
   }
 
   /**
@@ -425,7 +411,7 @@ export class ChatSessionService {
 
     // Get conversation history from the session (last 10 messages for context)
     const existingMessages = session.messages || [];
-    const conversationHistory = existingMessages.slice(-10).map(msg => ({
+    const conversationHistory = existingMessages.slice(-10).map((msg) => ({
       role: msg.role as 'user' | 'assistant',
       content: msg.content,
     }));
@@ -448,7 +434,7 @@ export class ChatSessionService {
     );
 
     // Map constraints from snake_case to camelCase
-    const mappedConstraints = aiResponse.constraints?.map(c => ({
+    const mappedConstraints = aiResponse.constraints?.map((c) => ({
       constraintType: c.constraint_type,
       description: c.description,
       severity: c.severity,
@@ -469,11 +455,10 @@ export class ChatSessionService {
     };
 
     // Save both messages
-    const updatedSession = await this.repository.addMessages(
-      session.sessionId,
-      userId,
-      [userMessage, assistantMessage]
-    );
+    const updatedSession = await this.repository.addMessages(session.sessionId, userId, [
+      userMessage,
+      assistantMessage,
+    ]);
 
     if (!updatedSession) {
       throw new AppError('Failed to save messages', 500);
@@ -490,10 +475,7 @@ export class ChatSessionService {
   /**
    * Get location session by location name
    */
-  async getLocationSession(
-    userId: string,
-    locationName: string
-  ): Promise<IChatSession | null> {
+  async getLocationSession(userId: string, locationName: string): Promise<IChatSession | null> {
     return await this.repository.findByLocationAndUser(locationName, userId);
   }
 
@@ -501,10 +483,7 @@ export class ChatSessionService {
    * Clear all messages from a session (keeps session)
    * Also clears the AI Engine's LangGraph checkpoint memory for this thread
    */
-  async clearMessages(
-    sessionId: string,
-    userId: string
-  ): Promise<IChatSession> {
+  async clearMessages(sessionId: string, userId: string): Promise<IChatSession> {
     const session = await this.repository.clearMessages(sessionId, userId);
     if (!session) {
       throw new AppError('Chat session not found', 404);

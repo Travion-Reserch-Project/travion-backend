@@ -11,7 +11,7 @@ import {
   ISearchHistoryEntry,
   IPreferenceScores,
   ITravelStylePreferences,
-} from '../models/UserPreferences';
+} from '../../../tour-agent/domain/models/UserPreferences';
 
 export class UserPreferencesRepository {
   // ============================================================================
@@ -51,10 +51,7 @@ export class UserPreferencesRepository {
   /**
    * Update preferences document
    */
-  async update(
-    userId: string,
-    data: Partial<IUserPreferences>
-  ): Promise<IUserPreferences | null> {
+  async update(userId: string, data: Partial<IUserPreferences>): Promise<IUserPreferences | null> {
     return await UserPreferences.findOneAndUpdate(
       { userId: new mongoose.Types.ObjectId(userId) },
       { $set: data },
@@ -169,10 +166,7 @@ export class UserPreferencesRepository {
   /**
    * Remove a saved location by location ID
    */
-  async removeSavedLocation(
-    userId: string,
-    locationId: string
-  ): Promise<IUserPreferences | null> {
+  async removeSavedLocation(userId: string, locationId: string): Promise<IUserPreferences | null> {
     return await UserPreferences.findOneAndUpdate(
       { userId: new mongoose.Types.ObjectId(userId) },
       { $pull: { savedLocations: { locationId } } },
@@ -249,17 +243,15 @@ export class UserPreferencesRepository {
   /**
    * Get search history (most recent first)
    */
-  async getSearchHistory(
-    userId: string,
-    limit: number = 50
-  ): Promise<ISearchHistoryEntry[]> {
+  async getSearchHistory(userId: string, limit: number = 50): Promise<ISearchHistoryEntry[]> {
     const preferences = await UserPreferences.findOne(
       { userId: new mongoose.Types.ObjectId(userId) },
       { searchHistory: { $slice: -limit } }
     );
 
-    return (preferences?.searchHistory || [])
-      .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
+    return (preferences?.searchHistory || []).sort(
+      (a, b) => b.timestamp.getTime() - a.timestamp.getTime()
+    );
   }
 
   /**
@@ -304,10 +296,7 @@ export class UserPreferencesRepository {
   /**
    * Add a category to favorites
    */
-  async addFavoriteCategory(
-    userId: string,
-    category: string
-  ): Promise<IUserPreferences | null> {
+  async addFavoriteCategory(userId: string, category: string): Promise<IUserPreferences | null> {
     return await UserPreferences.findOneAndUpdate(
       { userId: new mongoose.Types.ObjectId(userId) },
       { $addToSet: { favoriteCategories: category } },
@@ -318,10 +307,7 @@ export class UserPreferencesRepository {
   /**
    * Remove a category from favorites
    */
-  async removeFavoriteCategory(
-    userId: string,
-    category: string
-  ): Promise<IUserPreferences | null> {
+  async removeFavoriteCategory(userId: string, category: string): Promise<IUserPreferences | null> {
     return await UserPreferences.findOneAndUpdate(
       { userId: new mongoose.Types.ObjectId(userId) },
       { $pull: { favoriteCategories: category } },
@@ -336,10 +322,7 @@ export class UserPreferencesRepository {
   /**
    * Mark a location as visited
    */
-  async addVisitedLocation(
-    userId: string,
-    locationId: string
-  ): Promise<IUserPreferences | null> {
+  async addVisitedLocation(userId: string, locationId: string): Promise<IUserPreferences | null> {
     return await UserPreferences.findOneAndUpdate(
       { userId: new mongoose.Types.ObjectId(userId) },
       { $addToSet: { visitedLocations: locationId } },
