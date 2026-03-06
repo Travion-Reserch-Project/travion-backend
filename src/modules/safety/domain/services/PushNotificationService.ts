@@ -8,11 +8,13 @@ export interface NotificationPayload {
   title: string;
   body: string;
   data?: {
-    type: 'incident_alert' | 'system';
+    type: 'incident_alert' | 'system' | 'uv_health_alert';
     screen?: string;
     incidentId?: string;
     latitude?: string;
     longitude?: string;
+    uvIndex?: string;
+    riskLevel?: string;
     [key: string]: string | undefined;
   };
 }
@@ -26,7 +28,7 @@ export class PushNotificationService {
   private filterData(data?: Record<string, string | undefined>): Record<string, string> {
     if (!data) return {};
     const filtered: Record<string, string> = {};
-    Object.keys(data).forEach(key => {
+    Object.keys(data).forEach((key) => {
       if (data[key] !== undefined) {
         filtered[key] = data[key] as string;
       }
@@ -70,7 +72,7 @@ export class PushNotificationService {
           console.log('[PushNotificationService] Firebase Admin initialized successfully');
         } else {
           console.warn(
-            '[PushNotificationService] Firebase credentials not found. Push notifications disabled.',
+            '[PushNotificationService] Firebase credentials not found. Push notifications disabled.'
           );
           return;
         }
@@ -92,6 +94,11 @@ export class PushNotificationService {
     }
 
     try {
+      // Determine the appropriate notification channel
+      const isUVAlert =
+        notification.data?.type === 'uv_health_alert' || notification.data?.riskLevel !== undefined;
+      const channelId = isUVAlert ? 'uv_health_alerts' : 'incident_alerts';
+
       const message: admin.messaging.Message = {
         token: deviceToken,
         notification: {
@@ -104,7 +111,7 @@ export class PushNotificationService {
           notification: {
             sound: 'default',
             priority: 'high' as const,
-            channelId: 'incident_alerts',
+            channelId,
           },
         },
         apns: {
@@ -140,7 +147,7 @@ export class PushNotificationService {
    */
   async sendToMultipleDevices(
     deviceTokens: string[],
-    notification: NotificationPayload,
+    notification: NotificationPayload
   ): Promise<{ successCount: number; failureCount: number }> {
     if (!this.initialized) {
       console.warn('[PushNotificationService] Not initialized. Skipping notifications.');
@@ -152,6 +159,11 @@ export class PushNotificationService {
     }
 
     try {
+      // Determine the appropriate notification channel
+      const isUVAlert =
+        notification.data?.type === 'uv_health_alert' || notification.data?.riskLevel !== undefined;
+      const channelId = isUVAlert ? 'uv_health_alerts' : 'incident_alerts';
+
       const message: admin.messaging.MulticastMessage = {
         tokens: deviceTokens,
         notification: {
@@ -164,7 +176,7 @@ export class PushNotificationService {
           notification: {
             sound: 'default',
             priority: 'high' as const,
-            channelId: 'incident_alerts',
+            channelId,
           },
         },
         apns: {
@@ -180,7 +192,7 @@ export class PushNotificationService {
       const response = await admin.messaging().sendEachForMulticast(message);
 
       console.log(
-        `[PushNotificationService] Sent ${response.successCount}/${deviceTokens.length} notifications`,
+        `[PushNotificationService] Sent ${response.successCount}/${deviceTokens.length} notifications`
       );
 
       // Handle failed tokens
@@ -191,7 +203,7 @@ export class PushNotificationService {
             failedTokens.push(deviceTokens[idx]);
             console.error(
               `[PushNotificationService] Failed to send to ${deviceTokens[idx]}:`,
-              resp.error,
+              resp.error
             );
           }
         });
@@ -223,7 +235,7 @@ export class PushNotificationService {
       distance: string;
       incidentId: string;
     },
-    reporterUserId?: mongoose.Types.ObjectId,
+    reporterUserId?: mongoose.Types.ObjectId
   ): Promise<{ notifiedCount: number }> {
     try {
       // Find nearby active devices (excluding the reporter)
@@ -231,7 +243,7 @@ export class PushNotificationService {
         longitude,
         latitude,
         radiusInKm,
-        reporterUserId,
+        reporterUserId
       );
 
       if (nearbyDevices.length === 0) {
@@ -260,7 +272,9 @@ export class PushNotificationService {
       // Send notifications
       const result = await this.sendToMultipleDevices(deviceTokens, notification);
 
-      console.log(`[PushNotificationService] Incident alert sent to ${result.successCount} devices`);
+      console.log(
+        `[PushNotificationService] Incident alert sent to ${result.successCount} devices`
+      );
 
       return { notifiedCount: result.successCount };
     } catch (error) {
@@ -274,7 +288,7 @@ export class PushNotificationService {
    */
   async sendToUser(
     userId: mongoose.Types.ObjectId,
-    notification: NotificationPayload,
+    notification: NotificationPayload
   ): Promise<boolean> {
     try {
       const devices = await DeviceToken.find({ userId, isActive: true });
@@ -284,7 +298,7 @@ export class PushNotificationService {
         return false;
       }
 
-      const deviceTokens = devices.map(device => device.deviceToken);
+      const deviceTokens = devices.map((device) => device.deviceToken);
       const result = await this.sendToMultipleDevices(deviceTokens, notification);
 
       return result.successCount > 0;
@@ -299,11 +313,7 @@ export class PushNotificationService {
    */
   private async removeInvalidToken(deviceToken: string): Promise<void> {
     try {
-      await DeviceToken.findOneAndUpdate(
-        { deviceToken },
-        { isActive: false },
-        { new: true },
-      );
+      await DeviceToken.findOneAndUpdate({ deviceToken }, { isActive: false }, { new: true });
       console.log(`[PushNotificationService] Marked token as inactive: ${deviceToken}`);
     } catch (error) {
       console.error('[PushNotificationService] Remove invalid token error:', error);
@@ -315,10 +325,7 @@ export class PushNotificationService {
    */
   private async removeInvalidTokens(deviceTokens: string[]): Promise<void> {
     try {
-      await DeviceToken.updateMany(
-        { deviceToken: { $in: deviceTokens } },
-        { isActive: false },
-      );
+      await DeviceToken.updateMany({ deviceToken: { $in: deviceTokens } }, { isActive: false });
       console.log(`[PushNotificationService] Marked ${deviceTokens.length} tokens as inactive`);
     } catch (error) {
       console.error('[PushNotificationService] Remove invalid tokens error:', error);

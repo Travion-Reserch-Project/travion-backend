@@ -5,6 +5,7 @@ import { AuthRequest } from '../../../../shared/middleware/auth';
 import { validationResult } from 'express-validator';
 import { DeviceToken } from '../../domain/models/DeviceToken';
 import mongoose from 'mongoose';
+import { RealtimeUVAlertService } from '../../../weather/api/controllers/RealtimeUVAlertController';
 
 export class PushNotificationController {
   /**
@@ -156,6 +157,14 @@ export class PushNotificationController {
           updatedCount: result.modifiedCount,
         },
       });
+
+      // Fire async UV risk check (non-blocking) after sending response
+      // This checks weather + ML model and sends push notification if risk is high/very high
+      if (result.modifiedCount > 0) {
+        RealtimeUVAlertService.checkAndNotify(userId, latitude, longitude).catch((err) =>
+          console.error('[PushNotificationController] UV alert check failed:', err.message)
+        );
+      }
     } catch (error) {
       console.error('[PushNotificationController] Update location error:', error);
       res.status(500).json({
@@ -264,5 +273,3 @@ export class PushNotificationController {
     }
   };
 }
-
-
