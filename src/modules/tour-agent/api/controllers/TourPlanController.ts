@@ -131,6 +131,7 @@ export class TourPlanController {
           // ── HITL Interrupt Fields ──
           pendingUserSelection: response.pending_user_selection ?? false,
           selectionCards: response.selection_cards,
+          promptText: response.prompt_text,
           searchCandidates: response.search_candidates,
           mcpSearchMetadata: response.mcp_search_metadata,
           weatherInterrupt: response.weather_interrupt ?? false,
@@ -249,6 +250,7 @@ export class TourPlanController {
           // ── HITL Interrupt Fields ──
           pendingUserSelection: response.pending_user_selection ?? false,
           selectionCards: response.selection_cards,
+          promptText: response.prompt_text,
           searchCandidates: response.search_candidates,
           mcpSearchMetadata: response.mcp_search_metadata,
           weatherInterrupt: response.weather_interrupt ?? false,
@@ -450,6 +452,7 @@ export class TourPlanController {
           accommodationRecommendations: response.accommodation_recommendations,
           pendingUserSelection: response.pending_user_selection ?? false,
           selectionCards: response.selection_cards,
+          promptText: response.prompt_text,
           searchCandidates: response.search_candidates,
           mcpSearchMetadata: response.mcp_search_metadata,
           weatherInterrupt: response.weather_interrupt ?? false,
@@ -506,6 +509,7 @@ export class TourPlanController {
           accommodationRecommendations: response.accommodation_recommendations,
           pendingUserSelection: response.pending_user_selection ?? false,
           selectionCards: response.selection_cards,
+          promptText: response.prompt_text,
           searchCandidates: response.search_candidates,
           mcpSearchMetadata: response.mcp_search_metadata,
           weatherInterrupt: response.weather_interrupt ?? false,

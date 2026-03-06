@@ -198,6 +198,7 @@ export interface TourPlanResponse {
   // ── HITL Interrupt Fields ──
   pending_user_selection?: boolean; // True when graph is paused waiting for user selection
   selection_cards?: SelectionCard[]; // Pre-formatted UI cards for mobile selection
+  prompt_text?: string; // Short header text for mobile selection prompt (e.g. 'Pick a restaurant')
   search_candidates?: SearchCandidate[]; // Raw grounded candidates from MCP search
   mcp_search_metadata?: Record<string, any>; // MCP search pipeline metadata
   weather_interrupt?: boolean; // True when graph is paused due to severe weather
