@@ -23,6 +23,7 @@ export interface CreateIncidentReportInput {
   description: string;
   photoUrl?: string;
   isAnonymous?: boolean;
+  reporterDeviceToken?: string; // FCM token of the reporting device to exclude from push notifications
 }
 
 export interface IncidentReportResponse {
@@ -97,7 +98,8 @@ export class IncidentReportService {
               distance: distance,
               incidentId: (report._id as mongoose.Types.ObjectId).toString(),
             },
-            reportData.userId ? new mongoose.Types.ObjectId(reportData.userId) : undefined
+            reportData.userId ? new mongoose.Types.ObjectId(reportData.userId) : undefined,
+            reportData.reporterDeviceToken
           )
           .then((result) => {
             console.log(

@@ -45,6 +45,7 @@ router.post(
       .withMessage('Description must be between 10 and 2000 characters'),
     body('photoUrl').optional().isURL().withMessage('Invalid photo URL'),
     body('isAnonymous').optional().isBoolean().withMessage('isAnonymous must be a boolean'),
+    body('reporterDeviceToken').optional().isString().withMessage('Invalid reporter device token'),
   ],
   incidentReportController.createReport
 );
