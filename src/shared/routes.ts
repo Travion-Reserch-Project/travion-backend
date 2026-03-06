@@ -41,7 +41,7 @@ router.get('/health', (_req, res) => {
 router.use('/auth', authRoutes);
 router.use('/users', userRoutes);
 router.use('/chatbot', chatbotRoutes);
-router.use('/incidents', incidentRoutes);
+router.use('/transport-incidents', incidentRoutes);
 router.use('/safety', safetyRoutes);
 router.use('/incidents', incidentReportRoutes);
 router.use('/push-notifications', pushNotificationRoutes);
