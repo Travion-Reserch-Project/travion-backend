@@ -1,13 +1,15 @@
 /**
  * Transport Module
- * Handles transport routing, chatbot, maps integration, and travel recommendations
+ * Handles transport routing, chatbot, maps integration, travel recommendations, and community incident reporting
  */
 
 // Export routes
 export { chatbotRoutes } from './api/routes/chatbotRoutes';
+export { incidentRoutes } from './api/routes/incidentRoutes';
 
 // Export controllers
 export { TransportChatbotController } from './api/controllers/TransportChatbotController';
+export { IncidentController } from './api/controllers/IncidentController';
 
 // Export services
 export { TransportChatbotService } from './domain/services/TransportChatbotService';
@@ -20,6 +22,7 @@ export { RankingService } from './domain/services/RankingService';
 export { RouteContextBuilder } from './domain/services/RouteContextBuilder';
 export { TrafficService } from './domain/services/TrafficService';
 export { WeatherService } from './domain/services/WeatherService';
+export { IncidentService } from './domain/services/IncidentService';
 
 // Export utils
 export { HolidayService } from './domain/utils/HolidayService';
@@ -35,6 +38,12 @@ export { Message, IMessage } from './domain/models/Message';
 export { Province, IProvince } from './domain/models/Province';
 export { TransportRoute, ITransportRoute } from './domain/models/TransportRoute';
 export { TransportStation, ITransportStation } from './domain/models/TransportStation';
+export {
+  RoadIncident,
+  IRoadIncident,
+  IAffectedRoute,
+  ILocation as IIncidentLocation,
+} from './domain/models/RoadIncident';
 
 // Export repositories
 export { CityRepository } from './domain/repositories/CityRepository';
@@ -42,3 +51,4 @@ export { ConversationRepository } from './domain/repositories/ConversationReposi
 export { MessageRepository } from './domain/repositories/MessageRepository';
 export { TransportRouteRepository } from './domain/repositories/TransportRouteRepository';
 export { TransportStationRepository } from './domain/repositories/TransportStationRepository';
+export { IncidentRepository } from './domain/repositories/IncidentRepository';

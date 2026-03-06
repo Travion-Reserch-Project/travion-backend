@@ -4,6 +4,7 @@ import { join } from 'path';
 import authRoutes from '../modules/auth/api/routes/authRoutes';
 import userRoutes from '../modules/auth/api/routes/userRoutes';
 import { chatbotRoutes } from '../modules/transport/api/routes/chatbotRoutes';
+import { incidentRoutes } from '../modules/transport/api/routes/incidentRoutes';
 import { safetyRoutes } from '../modules/safety/api/routes/safetyRoutes';
 import { incidentReportRoutes } from '../modules/safety/api/routes/incidentReportRoutes';
 import { pushNotificationRoutes } from '../modules/safety/api/routes/pushNotificationRoutes';
@@ -40,6 +41,7 @@ router.get('/health', (_req, res) => {
 router.use('/auth', authRoutes);
 router.use('/users', userRoutes);
 router.use('/chatbot', chatbotRoutes);
+router.use('/incidents', incidentRoutes);
 router.use('/safety', safetyRoutes);
 router.use('/incidents', incidentReportRoutes);
 router.use('/push-notifications', pushNotificationRoutes);
