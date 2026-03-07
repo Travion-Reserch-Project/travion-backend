@@ -5,7 +5,7 @@
 
 import { Response, NextFunction } from 'express';
 import { AuthRequest } from '../../../../shared/middleware/auth';
-import { ChatSessionService } from '../../domain/services/ChatSessionService';
+import { ChatSessionService } from '../../../auth/domain/services/ChatSessionService';
 import { AppError } from '../../../../shared/middleware/errorHandler';
 
 export class ChatSessionController {

@@ -43,6 +43,10 @@ const generatePlanSchema = Joi.object({
     }),
   preferences: Joi.array().items(Joi.string()).optional(),
   message: Joi.string().optional().max(1000),
+  selectedRestaurantIds: Joi.array().items(Joi.string()).optional(),
+  selectedAccommodationIds: Joi.array().items(Joi.string()).optional(),
+  skipRestaurants: Joi.boolean().optional(),
+  skipAccommodations: Joi.boolean().optional(),
 });
 
 const refinePlanSchema = Joi.object({
@@ -60,6 +64,17 @@ const refinePlanSchema = Joi.object({
     .required()
     .pattern(/^\d{4}-\d{2}-\d{2}$/),
   preferences: Joi.array().items(Joi.string()).optional(),
+  selectedRestaurantIds: Joi.array().items(Joi.string()).optional(),
+  selectedAccommodationIds: Joi.array().items(Joi.string()).optional(),
+  skipRestaurants: Joi.boolean().optional(),
+  skipAccommodations: Joi.boolean().optional(),
+});
+
+const hotelSearchSchema = Joi.object({
+  query: Joi.string().required().min(2).max(500).messages({
+    'any.required': 'Search query is required',
+  }),
+  location: Joi.string().optional().max(200),
 });
 
 const acceptPlanSchema = Joi.object({
@@ -68,6 +83,25 @@ const acceptPlanSchema = Joi.object({
   description: Joi.string().optional().max(1000),
   itinerary: Joi.array().items(Joi.object()).required().min(1),
   metadata: Joi.object().optional(),
+});
+
+const resumeSelectionSchema = Joi.object({
+  threadId: Joi.string().required().messages({
+    'any.required': 'Thread ID is required to resume the paused graph',
+  }),
+  selectedCandidateId: Joi.string().required().messages({
+    'any.required': 'Selected candidate ID is required',
+  }),
+});
+
+const resumeWeatherSchema = Joi.object({
+  threadId: Joi.string().required().messages({
+    'any.required': 'Thread ID is required to resume the paused graph',
+  }),
+  userWeatherChoice: Joi.string().required().valid('switch_indoor', 'reschedule', 'keep').messages({
+    'any.required': 'Weather choice is required',
+    'any.only': 'Weather choice must be one of: switch_indoor, reschedule, keep',
+  }),
 });
 
 // ============================================================================
@@ -105,10 +139,35 @@ router.post('/refine', validate(refinePlanSchema), tourPlanController.refinePlan
 router.post('/accept', validate(acceptPlanSchema), tourPlanController.acceptPlan);
 
 /**
+ * @route   POST /tour-plan/hotel-search
+ * @desc    Search for hotels, restaurants, or activities near a location
+ * @access  Private
+ */
+router.post('/hotel-search', validate(hotelSearchSchema), tourPlanController.searchHotels);
+
+/**
  * @route   GET /tour-plan/session/:threadId
  * @desc    Get tour plan session details
  * @access  Private
  */
 router.get('/session/:threadId', tourPlanController.getSession);
+
+/**
+ * @route   POST /tour-plan/resume-selection
+ * @desc    Resume the paused graph after user selects a search candidate (HITL)
+ * @access  Private
+ */
+router.post(
+  '/resume-selection',
+  validate(resumeSelectionSchema),
+  tourPlanController.resumeSelection
+);
+
+/**
+ * @route   POST /tour-plan/resume-weather
+ * @desc    Resume the paused graph after user decides on weather action (HITL)
+ * @access  Private
+ */
+router.post('/resume-weather', validate(resumeWeatherSchema), tourPlanController.resumeWeather);
 
 export default router;
