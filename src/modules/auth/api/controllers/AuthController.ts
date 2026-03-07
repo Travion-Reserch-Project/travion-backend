@@ -14,14 +14,14 @@ export class AuthController {
       const result = await this.authService.register(req.body);
 
       // Set HTTP-only cookies
-      res.cookie('accessToken', result.token, {
+      res.cookie('accessToken', result.tokens.accessToken, {
         httpOnly: config.cookies.httpOnly,
         secure: config.cookies.secure,
         sameSite: config.cookies.sameSite,
         maxAge: config.cookies.maxAge,
       });
 
-      res.cookie('refreshToken', result.refreshToken, {
+      res.cookie('refreshToken', result.tokens.refreshToken, {
         httpOnly: config.cookies.httpOnly,
         secure: config.cookies.secure,
         sameSite: config.cookies.sameSite,
@@ -31,11 +31,14 @@ export class AuthController {
       res.status(201).json({
         success: true,
         message: 'User registered successfully',
-        data: {
-          user: result.user,
-          // Still return tokens for clients that prefer header-based auth
-          token: result.token,
-          refreshToken: result.refreshToken,
+        tokens: result.tokens,
+        user: {
+          userId: String(result.user._id),
+          email: result.user.email,
+          userName: result.user.userName,
+          name: `${result.user.firstName} ${result.user.lastName}`.trim(),
+          picture: result.user.profilePicture,
+          profileStatus: result.user.profileStatus,
         },
       });
     } catch (error) {
@@ -48,14 +51,14 @@ export class AuthController {
       const result = await this.authService.login(req.body);
 
       // Set HTTP-only cookies
-      res.cookie('accessToken', result.token, {
+      res.cookie('accessToken', result.tokens.accessToken, {
         httpOnly: config.cookies.httpOnly,
         secure: config.cookies.secure,
         sameSite: config.cookies.sameSite,
         maxAge: config.cookies.maxAge,
       });
 
-      res.cookie('refreshToken', result.refreshToken, {
+      res.cookie('refreshToken', result.tokens.refreshToken, {
         httpOnly: config.cookies.httpOnly,
         secure: config.cookies.secure,
         sameSite: config.cookies.sameSite,
@@ -65,10 +68,14 @@ export class AuthController {
       res.status(200).json({
         success: true,
         message: 'Login successful',
-        data: {
-          user: result.user,
-          token: result.token,
-          refreshToken: result.refreshToken,
+        tokens: result.tokens,
+        user: {
+          userId: String(result.user._id),
+          email: result.user.email,
+          userName: result.user.userName,
+          name: `${result.user.firstName} ${result.user.lastName}`.trim(),
+          picture: result.user.profilePicture,
+          profileStatus: result.user.profileStatus,
         },
       });
     } catch (error) {
@@ -89,17 +96,17 @@ export class AuthController {
         return;
       }
 
-      const result = await this.authService.refreshToken(refreshToken);
+      const tokens = await this.authService.refreshToken(refreshToken);
 
       // Set new cookies
-      res.cookie('accessToken', result.token, {
+      res.cookie('accessToken', tokens.accessToken, {
         httpOnly: config.cookies.httpOnly,
         secure: config.cookies.secure,
         sameSite: config.cookies.sameSite,
         maxAge: config.cookies.maxAge,
       });
 
-      res.cookie('refreshToken', result.refreshToken, {
+      res.cookie('refreshToken', tokens.refreshToken, {
         httpOnly: config.cookies.httpOnly,
         secure: config.cookies.secure,
         sameSite: config.cookies.sameSite,
@@ -109,7 +116,7 @@ export class AuthController {
       res.status(200).json({
         success: true,
         message: 'Token refreshed successfully',
-        data: result,
+        tokens,
       });
     } catch (error) {
       next(error);
