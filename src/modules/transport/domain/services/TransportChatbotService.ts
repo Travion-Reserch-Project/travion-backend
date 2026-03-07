@@ -5,6 +5,7 @@ import { LLMService } from './LLMService';
 import { GoogleMapsService } from './GoogleMapsService';
 import { RouteContextBuilder, StaticRouteData, RouteContext } from './RouteContextBuilder';
 import { RankingService, RankedRoute } from './RankingService';
+import { IncidentService, IncidentResponse } from './IncidentService';
 import { RouteAvailabilityHelper } from '../utils/RouteAvailabilityHelper';
 import { logger } from '../../../../shared/config/logger';
 import { IMessage } from '../models/Message';
@@ -44,6 +45,12 @@ export interface ChatResponse {
     }>;
     transport_recommendations?: unknown;
     weather_info?: unknown;
+    road_incidents?: {
+      active_incidents: IncidentResponse[];
+      incident_count: number;
+      critical_incidents: number;
+      high_incidents: number;
+    };
     map_data?: {
       origin: { lat: number; lng: number };
       destination: { lat: number; lng: number };
@@ -94,6 +101,7 @@ export class TransportChatbotService {
   private googleMapsService: GoogleMapsService;
   private routeContextBuilder: RouteContextBuilder;
   private rankingService: RankingService;
+  private incidentService: IncidentService;
 
   constructor() {
     this.conversationService = new ConversationService();
@@ -103,6 +111,7 @@ export class TransportChatbotService {
     this.googleMapsService = new GoogleMapsService();
     this.routeContextBuilder = new RouteContextBuilder();
     this.rankingService = new RankingService();
+    this.incidentService = new IncidentService();
   }
 
   /**
@@ -923,6 +932,21 @@ Return JSON with: intent, origin, destination, transport_type`;
           departureTime,
         });
 
+        // Fetch incidents affecting this route
+        let routeIncidents: IncidentResponse[] = [];
+        try {
+          routeIncidents = await this.incidentService.getIncidentsForRoute(
+            originCoords.lat,
+            originCoords.lng,
+            destCoords.lat,
+            destCoords.lng,
+            15 // 15km corridor radius
+          );
+        } catch (error) {
+          logger.warn('Error fetching route incidents:', error);
+          // Continue without incidents
+        }
+
         // Generate natural language explanation from top routes (fallback if LLM unavailable)
         let explanation: string;
         try {
@@ -937,11 +961,12 @@ Return JSON with: intent, origin, destination, transport_type`;
           explanation = `I found ${rankedRoutes.length} route options from ${origin} to ${destination}.`;
         }
 
-        // Format detailed response with top 3 routes
+        // Format detailed response with top 3 routes and incidents
         const detailedResponse = this.formatIntelligentRouteResponse(
           rankedRoutes,
           explanation,
-          departureTime
+          departureTime,
+          routeIncidents
         );
 
         // Update conversation context
@@ -979,6 +1004,12 @@ Return JSON with: intent, origin, destination, transport_type`;
             transport_recommendations: {
               ranking_weights: userWeights,
               ranked_routes: rankedRoutes.slice(0, 3),
+            },
+            road_incidents: {
+              active_incidents: routeIncidents,
+              incident_count: routeIncidents.length,
+              critical_incidents: routeIncidents.filter((i) => i.severity === 'critical').length,
+              high_incidents: routeIncidents.filter((i) => i.severity === 'high').length,
             },
             map_data: {
               origin: originCoords,
@@ -1025,13 +1056,44 @@ Return JSON with: intent, origin, destination, transport_type`;
   private formatIntelligentRouteResponse(
     rankedRoutes: RankedRoute[],
     explanation: string,
-    departureTime: Date
+    departureTime: Date,
+    incidents?: IncidentResponse[]
   ): string {
     let response = `${explanation}\n\n`;
 
     const topRoute = rankedRoutes[0];
     const isNightWindow = this.isNightTravelWindow(departureTime);
     const shortTrip = topRoute ? topRoute.dynamic.distance_km < 25 : false;
+
+    // Add incident warning if there are any
+    if (incidents && incidents.length > 0) {
+      const criticalIncidents = incidents.filter((i) => i.severity === 'critical');
+      const highIncidents = incidents.filter((i) => i.severity === 'high');
+
+      if (criticalIncidents.length > 0) {
+        response += '🚨 **CRITICAL INCIDENTS ON ROUTE:**\n';
+        criticalIncidents.forEach((incident) => {
+          response += `• ${incident.title} - ${incident.description.substring(0, 50)}...\n`;
+          if (incident.estimated_delay_min) {
+            response += `  ⏱️ Expected delay: ${incident.estimated_delay_min} minutes\n`;
+          }
+        });
+        response += '\n';
+      }
+
+      if (highIncidents.length > 0) {
+        response += '⚠️ **Important Road Conditions:**\n';
+        highIncidents.forEach((incident) => {
+          response += `• ${incident.title} (${incident.incident_type})\n`;
+        });
+        response += '\n';
+      }
+
+      if (incidents.length > criticalIncidents.length + highIncidents.length) {
+        const otherIncidents = incidents.length - criticalIncidents.length - highIncidents.length;
+        response += `ℹ️ There are ${otherIncidents} other reported incidents in this area.\n\n`;
+      }
+    }
 
     response += '**Route Summary:**\n';
     if (topRoute) {
@@ -1046,7 +1108,7 @@ Return JSON with: intent, origin, destination, transport_type`;
           '• Reasoning: For trips under 25 km during 8:00 PM–5:00 AM, ride-hailing (PickMe/Uber) is prioritized because public transport availability is less reliable.\n';
       } else {
         response +=
-          '• Reasoning: Ranked by travel time, fare, comfort, safety, weather, traffic, and ML confidence.\n';
+          '• Reasoning: Ranked by travel time, fare, comfort, safety, weather, traffic, incidents, and ML confidence.\n';
       }
     }
 
