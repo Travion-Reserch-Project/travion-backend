@@ -125,21 +125,37 @@ export class RankingService {
       const routeType = route.static.transport_type.toLowerCase();
       const operatorName = route.static.operator_name.toLowerCase();
       const isShortTrip = route.dynamic.distance_km < 25;
+      const isLongTrip = route.dynamic.distance_km > 100;
       const isRideHailing =
         ['car', 'taxi', 'tuk_tuk'].includes(routeType) || /pickme|uber/.test(operatorName);
       const isPublicTransport = ['bus', 'train'].includes(routeType);
+      const isTrain = routeType === 'train';
 
       let scoreAdjustment = 0;
       let recommendationReason = route.recommendation_reason;
 
+      // Night-time short trip: prioritize ride-hailing
       if (isShortTrip && isRideHailing) {
         scoreAdjustment += 0.2;
         recommendationReason =
           'Night-time short trip: ride-hailing prioritized for better availability and safety.';
       }
 
+      // Night-time short trip: deprioritize public transport
       if (isShortTrip && isPublicTransport) {
         scoreAdjustment -= 0.08;
+      }
+
+      // Long-distance trip: prioritize trains (more comfortable and economical)
+      if (isLongTrip && isTrain) {
+        scoreAdjustment += 0.15;
+        recommendationReason =
+          'Long-distance route: train prioritized for comfort, affordability, and scenic views.';
+      }
+
+      // Long-distance trip at night: deprioritize ride-hailing (expensive and tiring)
+      if (isLongTrip && isRideHailing) {
+        scoreAdjustment -= 0.15;
       }
 
       if (scoreAdjustment === 0) {

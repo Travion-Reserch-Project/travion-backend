@@ -290,7 +290,7 @@ export class GoogleMapsService {
   ): Promise<RouteDistance | null> {
     try {
       // Check cache first
-      const cacheKey = `distance:${originLat},${originLng}:${destLat},${destLng}`;
+      const cacheKey = `distance:${mode}:${originLat},${originLng}:${destLat},${destLng}`;
       const cached = cacheService.get<RouteDistance>(cacheKey);
       if (cached) {
         logger.debug(`Using cached distance for ${originLat},${originLng} → ${destLat},${destLng}`);
@@ -305,7 +305,7 @@ export class GoogleMapsService {
         walking: 'WALK',
       };
 
-      const requestBody = {
+      const requestBody: Record<string, any> = {
         origin: {
           location: {
             latLng: {
@@ -323,9 +323,13 @@ export class GoogleMapsService {
           },
         },
         travelMode: travelModeMap[mode],
-        routingPreference: 'TRAFFIC_AWARE', // Enable traffic data
         departureTime: new Date(Date.now() + 60000).toISOString(), // 1 minute in the future
       };
+
+      // Google Routes API does not allow routingPreference for TRANSIT mode.
+      if (mode === 'driving') {
+        requestBody.routingPreference = 'TRAFFIC_AWARE';
+      }
 
       const response = await this.routesClient.post('/directions/v2:computeRoutes', requestBody);
 
