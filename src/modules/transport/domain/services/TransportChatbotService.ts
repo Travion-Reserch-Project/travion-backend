@@ -1916,6 +1916,13 @@ Keep the response structured but natural - it should feel helpful and easy to sc
           10
         );
 
+        // Get route context for more accurate responses
+        const routeContext = conversation.context;
+        const originName =
+          intent.entities.origin || routeContext?.current_location?.city_name || 'your origin';
+        const destName =
+          intent.entities.destination || routeContext?.destination?.city_name || 'your destination';
+
         const systemPrompt = `You are a helpful Sri Lankan transport and tourism assistant. 
 You specialize in:
 1. **Transport routes** - Buses, trains, and travel connections across Sri Lanka
@@ -1929,7 +1936,7 @@ When asked about tourist destinations or attractions:
 - Be enthusiastic and helpful
 - Use relevant emojis to make responses engaging
 
-IMPORTANT: The user is asking about locations between ${intent.entities.origin || 'their origin'} and ${intent.entities.destination || 'their destination'}. 
+IMPORTANT: The user is asking about locations between ${originName} and ${destName}. 
 Focus on attractions ALONG OR NEAR this route.`;
 
         const conversationHistory = recentMessages
@@ -1950,15 +1957,23 @@ Focus on attractions ALONG OR NEAR this route.`;
         };
       } catch (error) {
         logger.warn('LLM failed for tourism question in location_info, using fallback', error);
+
+        // Get route context for fallback too
+        const routeContext = conversation.context;
+        const originName =
+          intent.entities.origin || routeContext?.current_location?.city_name || 'your origin';
+        const destName =
+          intent.entities.destination || routeContext?.destination?.city_name || 'your destination';
+
         // Fallback: provide helpful guidance
         return {
           conversation_id: String(conversation._id),
-          message: `I'd love to tell you about attractions between ${intent.entities.origin || 'your origin'} and ${intent.entities.destination || 'your destination'}! 🌍\n\nWhile I can't provide detailed information right now, I recommend:\n\n• Searching online for "${intent.entities.origin} to ${intent.entities.destination} attractions"\n• Asking locals along the route\n• Checking for national parks, beaches, temples, or historical sites\n\nI can help you plan the transport for your journey though! Just let me know if you need route information.`,
+          message: `I'd love to tell you about attractions between ${originName} and ${destName}! 🌍\n\nWhile I can't provide detailed information right now, I recommend:\n\n• Searching online for "${originName} to ${destName} attractions"\n• Asking locals along the route\n• Checking for national parks, beaches, temples, or historical sites\n\nI can help you plan the transport for your journey though! Just let me know if you need route information.`,
           message_type: 'text',
           suggestions: [
-            `Route from ${intent.entities.origin} to ${intent.entities.destination}`,
+            `Route from ${originName} to ${destName}`,
             `Weather along the route`,
-            `Tell me about ${intent.entities.destination}`,
+            `Tell me about ${destName}`,
           ],
         };
       }
@@ -2030,6 +2045,25 @@ Focus on attractions ALONG OR NEAR this route.`;
     context: IMessage[]
   ): Promise<ChatResponse> {
     try {
+      // Check if there's a stored route context to help answer follow-up questions
+      const routeContext = conversation.context;
+      let contextInfo = '';
+
+      const originName = routeContext?.current_location?.city_name;
+      const destName = routeContext?.destination?.city_name;
+
+      if (originName && destName) {
+        contextInfo = `\n\n**IMPORTANT CONTEXT:** The user is currently discussing a route from ${originName} to ${destName}. 
+If they ask about "the cheapest", "the fastest", "which one", "that route", "this trip", etc., they are referring to THIS specific route: ${originName} → ${destName}.
+Do NOT mention other routes or cities unless specifically asked. Focus your answer on their current route.`;
+
+        logger.info('Route context available for general question:', {
+          origin: originName,
+          destination: destName,
+          userQuestion: request.message,
+        });
+      }
+
       const systemPrompt = `You are a helpful Sri Lankan transport and tourism assistant. 
 You specialize in:
 1. **Transport routes** - Buses, trains, and travel connections across Sri Lanka
@@ -2043,7 +2077,7 @@ When asked about tourist destinations or attractions:
 - Be enthusiastic and helpful
 - Use relevant emojis to make responses engaging
 
-Be friendly, culturally aware, and helpful. If you don't know something, admit it and suggest alternatives.`;
+Be friendly, culturally aware, and helpful. If you don't know something, admit it and suggest alternatives.${contextInfo}`;
 
       const conversationHistory = context
         .map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`)
