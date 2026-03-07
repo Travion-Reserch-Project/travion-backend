@@ -71,6 +71,13 @@ export class RouteContextBuilder {
       }
 
       // Fetch real-time data in parallel (with error handling for optional APIs)
+      const distanceMode: 'driving' | 'transit' =
+        staticRoute.transport_type === 'car' ||
+        staticRoute.transport_type === 'taxi' ||
+        staticRoute.transport_type === 'tuk_tuk'
+          ? 'driving'
+          : 'transit';
+
       const [distanceData, weatherDest, trafficData] = await Promise.all([
         this.googleMapsService
           .getRouteDistance(
@@ -78,7 +85,7 @@ export class RouteContextBuilder {
             originCoords.lng,
             destCoords.lat,
             destCoords.lng,
-            staticRoute.transport_type === 'train' ? 'transit' : 'driving'
+            distanceMode
           )
           .catch(() => null),
         this.weatherService.getCurrentWeather(destCoords.lat, destCoords.lng).catch(() => null), // Weather is optional
@@ -92,17 +99,48 @@ export class RouteContextBuilder {
           })),
       ]);
 
+      let effectiveDistanceData = distanceData;
+
+      // Train-only fallback: if transit distance API fails, derive distance from coordinates
+      if (!effectiveDistanceData && staticRoute.transport_type === 'train') {
+        const straightLineKm = this.calculateHaversineDistance(
+          originCoords.lat,
+          originCoords.lng,
+          destCoords.lat,
+          destCoords.lng
+        );
+
+        const fallbackDurationMin =
+          staticRoute.estimated_duration_min || Math.round(straightLineKm * 1.4);
+
+        effectiveDistanceData = {
+          distance_km: straightLineKm,
+          distance_m: Math.round(straightLineKm * 1000),
+          duration_min: fallbackDurationMin,
+          duration_sec: fallbackDurationMin * 60,
+          traffic_delay_min: 0,
+        };
+
+        logger.warn(
+          `Using coordinate-based fallback distance for train route ${staticRoute.route_id}`,
+          {
+            distance_km: straightLineKm,
+            duration_min: fallbackDurationMin,
+          }
+        );
+      }
+
       // Handle null responses gracefully
-      if (!distanceData) {
+      if (!effectiveDistanceData) {
         logger.warn(`No distance data for route ${staticRoute.route_id}`);
         return null;
       }
 
       // Build dynamic context
       const dynamic: DynamicRouteData = {
-        distance_km: distanceData.distance_km,
-        duration_min: distanceData.duration_min + distanceData.traffic_delay_min,
-        traffic_delay_min: distanceData.traffic_delay_min,
+        distance_km: effectiveDistanceData.distance_km,
+        duration_min: effectiveDistanceData.duration_min + effectiveDistanceData.traffic_delay_min,
+        traffic_delay_min: effectiveDistanceData.traffic_delay_min,
         weather_risk: weatherDest ? this.calculateWeatherRisk(weatherDest) : 0.3,
         congestion: trafficData.congestion_level,
         accident_risk: trafficData.accident_risk_score,
@@ -174,6 +212,28 @@ export class RouteContextBuilder {
     }
 
     return Math.min(risk, 1.0); // Cap at 1.0
+  }
+
+  /**
+   * Calculate straight-line distance between two coordinates (Haversine formula)
+   */
+  private calculateHaversineDistance(
+    lat1: number,
+    lon1: number,
+    lat2: number,
+    lon2: number
+  ): number {
+    const R = 6371;
+    const dLat = ((lat2 - lat1) * Math.PI) / 180;
+    const dLon = ((lon2 - lon1) * Math.PI) / 180;
+    const a =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos((lat1 * Math.PI) / 180) *
+        Math.cos((lat2 * Math.PI) / 180) *
+        Math.sin(dLon / 2) *
+        Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
   }
 
   /**
