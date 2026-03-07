@@ -4,10 +4,10 @@
  * Provides methods for all AI Engine API endpoints
  */
 
-import { httpClient } from '../utils/httpClient';
-import { aiEngineConfig } from '../config/aiEngine';
-import { AppError } from '../middleware/errorHandler';
-import { logger } from '../config/logger';
+import { httpClient } from '../../../../shared/utils/httpClient';
+import { aiEngineConfig } from '../../../../shared/config/aiEngine';
+import { AppError } from '../../../../shared/middleware/errorHandler';
+import { logger } from '../../../../shared/config/logger';
 import {
   // Chat
   ChatRequest,
@@ -45,7 +45,7 @@ import {
   SimpleRecommendationResponse,
   // Common types
   UserPreferenceScores,
-} from '../types/aiEngine';
+} from '../../../tour-agent/domain/types/aiEngine';
 
 export class AIEngineService {
   /**

@@ -3,8 +3,8 @@
  * Business logic for chat session management and AI integration
  */
 
-import { AppError } from '../middleware/errorHandler';
-import { ChatSessionRepository, CreateSessionData } from '../repositories/ChatSessionRepository';
+import { AppError } from '../../../../shared/middleware/errorHandler';
+import { ChatSessionRepository } from '../repositories/ChatSessionRepository';
 import {
   IChatSession,
   IChatMessage,
@@ -31,16 +31,18 @@ export class ChatSessionService {
   /**
    * Create a new chat session
    */
-  async createSession(data: CreateSessionData): Promise<IChatSession> {
+  async createSession(userId: string, sessionData?: { title?: string; context?: ISessionContext; sessionId?: string }): Promise<IChatSession> {
     // Load user preferences for context
-    const preferences = await this.preferencesRepository.findByUserId(data.userId);
+    const preferences = await this.preferencesRepository.findByUserId(userId);
     const context: ISessionContext = {
-      ...data.context,
+      ...sessionData?.context,
       preferences: preferences?.preferenceScores,
     };
 
     return await this.repository.create({
-      ...data,
+      userId,
+      title: sessionData?.title,
+      sessionId: sessionData?.sessionId,
       context,
     });
   }
@@ -113,7 +115,7 @@ export class ChatSessionService {
     // Get or create session
     let session = await this.repository.findBySessionIdAndUser(sessionId, userId);
     if (!session) {
-      session = await this.createSession({ userId, sessionId, context });
+      session = await this.createSession(userId, { sessionId, context });
     }
 
     // Update context if provided
@@ -133,7 +135,7 @@ export class ChatSessionService {
 
     // Add assistant message with metadata
     // Map constraints from snake_case (AI Engine) to camelCase (our model)
-    const mappedConstraints = aiResponse.constraints?.map((c) => ({
+    const mappedConstraints = aiResponse.constraints?.map((c: { constraint_type: string; description: string; severity: string }) => ({
       constraintType: c.constraint_type,
       description: c.description,
       severity: c.severity,
@@ -434,7 +436,7 @@ export class ChatSessionService {
     );
 
     // Map constraints from snake_case to camelCase
-    const mappedConstraints = aiResponse.constraints?.map((c) => ({
+    const mappedConstraints = aiResponse.constraints?.map((c: { constraint_type: string; description: string; severity: string }) => ({
       constraintType: c.constraint_type,
       description: c.description,
       severity: c.severity,

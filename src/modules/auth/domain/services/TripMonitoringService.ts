@@ -24,8 +24,8 @@ import type {
   IDeltaPlan,
   IValidationResult,
 } from '../../../tour-agent/domain/models/TripPlan';
-import { httpClient } from '../utils/httpClient';
-import { logger } from '../config/logger';
+import { httpClient } from '../../../../shared/utils/httpClient';
+import { logger } from '../../../../shared/config/logger';
 import { getShadowWatcher } from '../workers/shadowWatcher';
 import { v4 as uuidv4 } from 'uuid';
 

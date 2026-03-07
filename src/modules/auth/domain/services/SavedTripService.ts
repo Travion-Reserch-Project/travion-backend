@@ -3,7 +3,7 @@
  * Business logic for trip management
  */
 
-import { AppError } from '../middleware/errorHandler';
+import { AppError } from '../../../../shared/middleware/errorHandler';
 import {
   SavedTripRepository,
   CreateTripData,
