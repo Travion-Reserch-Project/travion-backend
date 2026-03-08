@@ -1,7 +1,7 @@
 import { UserRepository } from '../repositories/UserRepository';
 import { IUser } from '../models/User';
 import { AppError } from '../../../../shared/middleware/errorHandler';
-import { TokenService } from './TokenService';
+import { TokenService, TokenResponse } from './TokenService';
 
 export interface RegisterDTO {
   email: string;
@@ -17,8 +17,11 @@ export interface LoginDTO {
 
 export interface AuthResponse {
   user: IUser;
-  token: string;
-  refreshToken: string;
+  tokens: {
+    accessToken: string;
+    refreshToken: string;
+    expiresIn: number;
+  };
 }
 
 export class AuthService {
@@ -36,9 +39,9 @@ export class AuthService {
 
     const user = await this.userRepository.create(data);
 
-    const { token, refreshToken } = TokenService.generateTokensForUser(user);
+    const tokens = TokenService.generateTokens(String(user._id));
 
-    return { user, token, refreshToken };
+    return { user, tokens };
   }
 
   async login(data: LoginDTO): Promise<AuthResponse> {
@@ -56,12 +59,12 @@ export class AuthService {
       throw new AppError('Invalid credentials', 401);
     }
 
-    const { token, refreshToken } = TokenService.generateTokensForUser(user);
+    const tokens = TokenService.generateTokens(String(user._id));
 
-    return { user, token, refreshToken };
+    return { user, tokens };
   }
 
-  async refreshToken(refreshToken: string): Promise<{ token: string; refreshToken: string }> {
+  async refreshToken(refreshToken: string): Promise<TokenResponse> {
     try {
       const decoded = TokenService.verifyToken(refreshToken, true) as {
         userId: string;
@@ -73,10 +76,7 @@ export class AuthService {
         throw new AppError('User not found', 404);
       }
 
-      const { token: newToken, refreshToken: newRefreshToken } =
-        TokenService.generateTokensForUser(user);
-
-      return { token: newToken, refreshToken: newRefreshToken };
+      return TokenService.generateTokens(String(user._id));
     } catch (error) {
       throw new AppError('Invalid refresh token', 401);
     }

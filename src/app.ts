@@ -21,6 +21,8 @@ import {
   mongoSanitizeConfig,
   hppWhitelist,
 } from './shared/config/security';
+import { pushNotificationService } from './modules/safety/domain/services/PushNotificationService';
+
 
 class App {
   public app: Application;
@@ -50,6 +52,11 @@ class App {
         maxAge: corsConfig.maxAge,
       })
     );
+
+    this.app.use((req, _res, next) => {
+      logger.info(`[API REQUEST] ${req.method} ${req.originalUrl}`);
+      next();
+    });
 
     // Body parser with size limits - MOVED BEFORE rate limiting
     this.app.use(express.json({ limit: bodyParserConfig.jsonLimit }));
@@ -122,7 +129,7 @@ class App {
     try {
       // Connect to database
       await connectDatabase();
-
+      pushNotificationService.initialize();
       // Start server
       this.app.listen(config.port, () => {
         logger.info(`Server is running on port ${config.port} in ${config.env} mode`);

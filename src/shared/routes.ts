@@ -6,6 +6,15 @@ import userRoutes from '../modules/auth/api/routes/userRoutes';
 import { chatbotRoutes } from '../modules/transport/api/routes/chatbotRoutes';
 import { safetyRoutes } from '../modules/safety/api/routes/safetyRoutes';
 import { incidentReportRoutes } from '../modules/safety/api/routes/incidentReportRoutes';
+import { pushNotificationRoutes } from '../modules/safety/api/routes/pushNotificationRoutes';
+import weatherRoutes from '../modules/weather/api/routes/weatherRoutes';
+import healthRoutes from '../modules/weather/api/routes/HealthProfileRoutes';
+import aiEngineRoutes from '../modules/tour-agent/api/routes/aiEngineRoutes';
+import userPreferencesRoutes from '../modules/tour-agent/api/routes/userPreferencesRoutes';
+import savedTripRoutes from '../modules/tour-agent/api/routes/savedTripRoutes';
+import chatSessionRoutes from '../modules/tour-agent/api/routes/chatSessionRoutes';
+import locationRoutes from '../modules/tour-agent/api/routes/locationRoutes';
+import tourPlanRoutes from '../modules/tour-agent/api/routes/tourPlanRoutes';
 
 const router = Router();
 
@@ -33,5 +42,14 @@ router.use('/users', userRoutes);
 router.use('/chatbot', chatbotRoutes);
 router.use('/safety', safetyRoutes);
 router.use('/incidents', incidentReportRoutes);
+router.use('/push-notifications', pushNotificationRoutes);
+router.use('/healthProfile', healthRoutes);
+router.use('/weather', weatherRoutes);
+router.use('/ai', aiEngineRoutes);
+router.use('/preferences', userPreferencesRoutes);
+router.use('/trips', savedTripRoutes);
+router.use('/chat', chatSessionRoutes);
+router.use('/locations', locationRoutes);
+router.use('/tour-plan', tourPlanRoutes);
 
 export default router;
