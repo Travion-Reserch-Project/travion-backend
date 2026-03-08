@@ -1,6 +1,16 @@
 import { City, ICity } from '../models/City';
 
 export class CityRepository {
+  private toSlug(value: string): string {
+    return value
+      .toString()
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9\s-]/g, '')
+      .replace(/\s+/g, '-')
+      .replace(/-+/g, '-');
+  }
+
   async findById(cityId: number): Promise<ICity | null> {
     return City.findOne({ city_id: cityId });
   }
@@ -12,17 +22,22 @@ export class CityRepository {
   }
 
   async searchByName(searchTerm: string): Promise<ICity[]> {
+    const trimmedTerm = searchTerm.trim();
+    const slugTerm = this.toSlug(trimmedTerm);
+
     // Special handling for "Colombo" without number - match "Colombo 1" first
-    if (/^colombo$/i.test(searchTerm.trim())) {
+    if (/^colombo$/i.test(trimmedTerm)) {
       const colombo1 = await City.findOne({ 'name.en': /^Colombo 1$/i });
       if (colombo1) return [colombo1];
     }
 
     return City.find({
       $or: [
-        { 'name.en': new RegExp(searchTerm, 'i') },
-        { 'name.si': new RegExp(searchTerm, 'i') },
-        { 'name.ta': new RegExp(searchTerm, 'i') },
+        { city_name: new RegExp(trimmedTerm, 'i') },
+        { slug: slugTerm },
+        { 'name.en': new RegExp(trimmedTerm, 'i') },
+        { 'name.si': new RegExp(trimmedTerm, 'i') },
+        { 'name.ta': new RegExp(trimmedTerm, 'i') },
       ],
     }).limit(10);
   }

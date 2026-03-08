@@ -12,8 +12,14 @@ export interface GoogleMapsRoute {
     duration: number;
     distance: number;
     travel_mode: string;
+    start_location?: { lat: number; lng: number };
+    end_location?: { lat: number; lng: number };
   }>;
-  polyline: string;
+  polyline: string; // Encoded polyline for entire route
+  bounds?: {
+    northeast: { lat: number; lng: number };
+    southwest: { lat: number; lng: number };
+  };
 }
 
 export interface GoogleMapsDirectionsResponse {
@@ -151,8 +157,32 @@ export class GoogleMapsService {
             duration: step.staticDuration ? parseInt(step.staticDuration.replace('s', '')) : 0,
             distance: step.distanceMeters || 0,
             travel_mode: step.travelMode || mode.toUpperCase(),
+            start_location: step.startLocation
+              ? {
+                  lat: step.startLocation.latLng?.latitude,
+                  lng: step.startLocation.latLng?.longitude,
+                }
+              : undefined,
+            end_location: step.endLocation
+              ? {
+                  lat: step.endLocation.latLng?.latitude,
+                  lng: step.endLocation.latLng?.longitude,
+                }
+              : undefined,
           })) || [],
         polyline: route.polyline?.encodedPolyline || '',
+        bounds: route.viewport
+          ? {
+              northeast: {
+                lat: route.viewport.high?.latitude,
+                lng: route.viewport.high?.longitude,
+              },
+              southwest: {
+                lat: route.viewport.low?.latitude,
+                lng: route.viewport.low?.longitude,
+              },
+            }
+          : undefined,
       }));
     } catch (error) {
       if (axios.isAxiosError(error)) {
@@ -260,7 +290,7 @@ export class GoogleMapsService {
   ): Promise<RouteDistance | null> {
     try {
       // Check cache first
-      const cacheKey = `distance:${originLat},${originLng}:${destLat},${destLng}`;
+      const cacheKey = `distance:${mode}:${originLat},${originLng}:${destLat},${destLng}`;
       const cached = cacheService.get<RouteDistance>(cacheKey);
       if (cached) {
         logger.debug(`Using cached distance for ${originLat},${originLng} → ${destLat},${destLng}`);
@@ -275,7 +305,7 @@ export class GoogleMapsService {
         walking: 'WALK',
       };
 
-      const requestBody = {
+      const requestBody: Record<string, any> = {
         origin: {
           location: {
             latLng: {
@@ -293,9 +323,13 @@ export class GoogleMapsService {
           },
         },
         travelMode: travelModeMap[mode],
-        routingPreference: 'TRAFFIC_AWARE', // Enable traffic data
         departureTime: new Date(Date.now() + 60000).toISOString(), // 1 minute in the future
       };
+
+      // Google Routes API does not allow routingPreference for TRANSIT mode.
+      if (mode === 'driving') {
+        requestBody.routingPreference = 'TRAFFIC_AWARE';
+      }
 
       const response = await this.routesClient.post('/directions/v2:computeRoutes', requestBody);
 

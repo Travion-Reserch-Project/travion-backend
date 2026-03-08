@@ -235,15 +235,18 @@ export class PushNotificationService {
       distance: string;
       incidentId: string;
     },
-    reporterUserId?: mongoose.Types.ObjectId
+
+    reporterUserId?: mongoose.Types.ObjectId,
+    reporterDeviceToken?: string
   ): Promise<{ notifiedCount: number }> {
     try {
-      // Find nearby active devices (excluding the reporter)
+      // Find nearby active devices (excluding the reporter's device)
       const nearbyDevices = await (DeviceToken as any).findNearbyDevices(
         longitude,
         latitude,
         radiusInKm,
-        reporterUserId
+        reporterUserId,
+        reporterDeviceToken
       );
 
       if (nearbyDevices.length === 0) {
@@ -258,11 +261,11 @@ export class PushNotificationService {
 
       // Prepare notification
       const notification: NotificationPayload = {
-        title: `ðŸš¨ ${incidentDetails.incidentType} Alert Nearby`,
+        title: `${incidentDetails.incidentType} Alert Nearby`,
         body: `Reported ${incidentDetails.distance} at ${incidentDetails.location}`,
         data: {
           type: 'incident_alert',
-          screen: 'Alerts',
+          screen: 'AlertsScreen',
           incidentId: incidentDetails.incidentId,
           latitude: latitude.toString(),
           longitude: longitude.toString(),

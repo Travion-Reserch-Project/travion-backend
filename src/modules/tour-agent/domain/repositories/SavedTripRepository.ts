@@ -103,10 +103,7 @@ export class SavedTripRepository {
 
     const skip = (page - 1) * limit;
     const [trips, total] = await Promise.all([
-      SavedTrip.find(query)
-        .sort({ createdAt: -1 })
-        .skip(skip)
-        .limit(limit),
+      SavedTrip.find(query).sort({ createdAt: -1 }).skip(skip).limit(limit),
       SavedTrip.countDocuments(query),
     ]);
 
@@ -170,10 +167,7 @@ export class SavedTripRepository {
   /**
    * Get trips by status
    */
-  async findByStatus(
-    userId: string,
-    status: string
-  ): Promise<ISavedTrip[]> {
+  async findByStatus(userId: string, status: string): Promise<ISavedTrip[]> {
     return await SavedTrip.find({
       userId: new mongoose.Types.ObjectId(userId),
       status,
@@ -353,7 +347,7 @@ export class SavedTripRepository {
       startDate: original.startDate,
       endDate: original.endDate,
       destinations: [...original.destinations],
-      itinerary: original.itinerary.map(item => ({ ...item })),
+      itinerary: original.itinerary.map((item) => ({ ...item })),
       isPublic: false,
       status: 'draft',
       tags: [...original.tags],
@@ -391,19 +385,11 @@ export class SavedTripRepository {
   /**
    * Search trips by title or destination
    */
-  async search(
-    userId: string,
-    searchTerm: string,
-    limit: number = 10
-  ): Promise<ISavedTrip[]> {
+  async search(userId: string, searchTerm: string, limit: number = 10): Promise<ISavedTrip[]> {
     const regex = new RegExp(searchTerm, 'i');
     return await SavedTrip.find({
       userId: new mongoose.Types.ObjectId(userId),
-      $or: [
-        { title: regex },
-        { destinations: regex },
-        { tags: regex },
-      ],
+      $or: [{ title: regex }, { destinations: regex }, { tags: regex }],
     })
       .limit(limit)
       .sort({ createdAt: -1 });

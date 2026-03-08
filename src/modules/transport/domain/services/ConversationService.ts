@@ -241,4 +241,74 @@ export class ConversationService {
 
     return count > 0 ? totalTime / count : undefined;
   }
+
+  /**
+   * Update pending route query context
+   */
+  async updatePendingRouteQuery(
+    conversationId: string,
+    origin?: { name: string; city_id?: number; coordinates?: { lat: number; lng: number } },
+    destination?: { name: string; city_id?: number; coordinates?: { lat: number; lng: number } }
+  ): Promise<IConversation | null> {
+    try {
+      const conversation = await this.conversationRepo.findById(conversationId);
+      if (!conversation) return null;
+
+      const pendingQuery = {
+        origin: origin || conversation.context?.pending_route_query?.origin,
+        destination: destination || conversation.context?.pending_route_query?.destination,
+        timestamp: new Date(),
+      };
+
+      return this.conversationRepo.updateContext(conversationId, {
+        ...conversation.context,
+        pending_route_query: pendingQuery,
+      });
+    } catch (error) {
+      logger.error('Error updating pending route query:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get pending route query and validate it's not expired (>10 minutes)
+   */
+  getPendingRouteQuery(conversation: IConversation): {
+    origin?: { name: string; city_id?: number; coordinates?: { lat: number; lng: number } };
+    destination?: { name: string; city_id?: number; coordinates?: { lat: number; lng: number } };
+  } | null {
+    const pending = conversation.context?.pending_route_query;
+    if (!pending) return null;
+
+    const EXPIRY_MS = 5 * 60 * 1000; // 5 minutes (reduced from 10 for faster cleanup)
+    const age = Date.now() - new Date(pending.timestamp).getTime();
+
+    if (age > EXPIRY_MS) {
+      logger.debug('Pending route query expired (>5min), ignoring');
+      return null;
+    }
+
+    return {
+      origin: pending.origin,
+      destination: pending.destination,
+    };
+  }
+
+  /**
+   * Clear pending route query after successful completion
+   */
+  async clearPendingRouteQuery(conversationId: string): Promise<IConversation | null> {
+    try {
+      const conversation = await this.conversationRepo.findById(conversationId);
+      if (!conversation) return null;
+
+      return this.conversationRepo.updateContext(conversationId, {
+        ...conversation.context,
+        pending_route_query: undefined,
+      });
+    } catch (error) {
+      logger.error('Error clearing pending route query:', error);
+      throw error;
+    }
+  }
 }

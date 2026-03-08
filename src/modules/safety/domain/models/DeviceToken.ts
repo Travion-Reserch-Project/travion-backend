@@ -67,7 +67,7 @@ const deviceTokenSchema = new Schema<IDeviceToken>(
   },
   {
     timestamps: true,
-  },
+  }
 );
 
 // Create 2dsphere index for geospatial queries
@@ -94,6 +94,7 @@ deviceTokenSchema.statics.findNearbyDevices = function (
   latitude: number,
   radiusInKm: number = 5,
   excludeUserId?: mongoose.Types.ObjectId,
+  excludeDeviceToken?: string
 ) {
   const radiusInMeters = radiusInKm * 1000;
 
@@ -113,6 +114,11 @@ deviceTokenSchema.statics.findNearbyDevices = function (
   // Exclude specific user if provided
   if (excludeUserId) {
     query.userId = { $ne: excludeUserId };
+  }
+
+  // Exclude specific device token if provided (for anonymous reports)
+  if (excludeDeviceToken) {
+    query.deviceToken = { $ne: excludeDeviceToken };
   }
 
   return this.find(query);

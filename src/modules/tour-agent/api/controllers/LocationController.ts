@@ -119,6 +119,9 @@ export class LocationController {
         limit ? parseInt(limit as string, 10) : 10
       );
 
+      console.log(`Search query: "${q}", Results found: ${results.length}`);
+      console.log('Sample search results:', results);
+
       res.status(200).json({
         success: true,
         message: 'Locations found',
@@ -179,13 +182,19 @@ export class LocationController {
       }
 
       // Fetch image from the external URL with browser-like User-Agent
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
+
       const response = await fetch(url, {
         headers: {
           'User-Agent': WIKIMEDIA_USER_AGENT,
           Accept: 'image/*,*/*;q=0.8',
         },
         redirect: 'follow',
+        signal: controller.signal,
       });
+
+      clearTimeout(timeoutId);
 
       if (!response.ok) {
         res.status(response.status).json({

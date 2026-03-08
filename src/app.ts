@@ -23,7 +23,6 @@ import {
 } from './shared/config/security';
 import { pushNotificationService } from './modules/safety/domain/services/PushNotificationService';
 
-
 class App {
   public app: Application;
 
@@ -129,7 +128,11 @@ class App {
     try {
       // Connect to database
       await connectDatabase();
+
+      // Initialize Firebase Admin SDK for push notifications
       pushNotificationService.initialize();
+
+
       // Start server
       this.app.listen(config.port, () => {
         logger.info(`Server is running on port ${config.port} in ${config.env} mode`);

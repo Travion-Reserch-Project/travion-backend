@@ -6,6 +6,11 @@ export interface UpdateUserDTO {
   firstName?: string;
   lastName?: string;
   email?: string;
+  gender?: 'Male' | 'Female' | 'Other';
+  dob?: Date;
+  country?: string;
+  preferredLanguage?: string;
+  profileStatus?: 'Incomplete' | 'Complete';
 }
 
 export class UserService {
