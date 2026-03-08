@@ -84,22 +84,20 @@ export const updateTravelStyleSchema = Joi.object({
   dietaryRestrictions: Joi.array().items(Joi.string().max(100)).max(20).optional().messages({
     'array.max': 'Cannot have more than 20 dietary restrictions',
   }),
-  transportationPreferences: Joi.array()
-    .items(Joi.string().max(100))
-    .max(10)
-    .optional()
-    .messages({
-      'array.max': 'Cannot have more than 10 transportation preferences',
-    }),
+  transportationPreferences: Joi.array().items(Joi.string().max(100)).max(10).optional().messages({
+    'array.max': 'Cannot have more than 10 transportation preferences',
+  }),
   accommodationType: Joi.string()
     .valid('hotel', 'hostel', 'resort', 'homestay', 'any')
     .optional()
     .messages({
       'any.only': 'Accommodation type must be hotel, hostel, resort, homestay, or any',
     }),
-}).min(1).messages({
-  'object.min': 'At least one travel style preference must be provided',
-});
+})
+  .min(1)
+  .messages({
+    'object.min': 'At least one travel style preference must be provided',
+  });
 
 // ============================================================================
 // SAVED LOCATIONS SCHEMAS
@@ -197,23 +195,17 @@ export const getSearchHistorySchema = Joi.object({
  * PATCH /api/v1/preferences/categories
  */
 export const updateCategoriesSchema = Joi.object({
-  favoriteCategories: Joi.array()
-    .items(Joi.string().min(1).max(100))
-    .max(50)
-    .optional()
-    .messages({
-      'array.max': 'Cannot have more than 50 favorite categories',
-    }),
-  avoidCategories: Joi.array()
-    .items(Joi.string().min(1).max(100))
-    .max(50)
-    .optional()
-    .messages({
-      'array.max': 'Cannot have more than 50 avoid categories',
-    }),
-}).min(1).messages({
-  'object.min': 'At least one category list must be provided',
-});
+  favoriteCategories: Joi.array().items(Joi.string().min(1).max(100)).max(50).optional().messages({
+    'array.max': 'Cannot have more than 50 favorite categories',
+  }),
+  avoidCategories: Joi.array().items(Joi.string().min(1).max(100)).max(50).optional().messages({
+    'array.max': 'Cannot have more than 50 avoid categories',
+  }),
+})
+  .min(1)
+  .messages({
+    'object.min': 'At least one category list must be provided',
+  });
 
 /**
  * Category parameter validation
@@ -278,6 +270,9 @@ export const updateNotificationPreferencesSchema = Joi.object({
   crowdAlerts: Joi.boolean().optional(),
   eventAlerts: Joi.boolean().optional(),
   poyaDayReminders: Joi.boolean().optional(),
-}).min(1).messages({
-  'object.min': 'At least one notification preference must be provided',
-});
+  highUVAlerts: Joi.boolean().optional(),
+})
+  .min(1)
+  .messages({
+    'object.min': 'At least one notification preference must be provided',
+  });

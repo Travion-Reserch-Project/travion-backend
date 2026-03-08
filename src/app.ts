@@ -132,6 +132,7 @@ class App {
       // Initialize Firebase Admin SDK for push notifications
       pushNotificationService.initialize();
 
+
       // Start server
       this.app.listen(config.port, () => {
         logger.info(`Server is running on port ${config.port} in ${config.env} mode`);

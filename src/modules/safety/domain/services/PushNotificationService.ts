@@ -8,11 +8,13 @@ export interface NotificationPayload {
   title: string;
   body: string;
   data?: {
-    type: 'incident_alert' | 'system';
+    type: 'incident_alert' | 'system' | 'uv_health_alert';
     screen?: string;
     incidentId?: string;
     latitude?: string;
     longitude?: string;
+    uvIndex?: string;
+    riskLevel?: string;
     [key: string]: string | undefined;
   };
 }
@@ -92,6 +94,11 @@ export class PushNotificationService {
     }
 
     try {
+      // Determine the appropriate notification channel
+      const isUVAlert =
+        notification.data?.type === 'uv_health_alert' || notification.data?.riskLevel !== undefined;
+      const channelId = isUVAlert ? 'uv_health_alerts' : 'incident_alerts';
+
       const message: admin.messaging.Message = {
         token: deviceToken,
         notification: {
@@ -104,7 +111,7 @@ export class PushNotificationService {
           notification: {
             sound: 'default',
             priority: 'high' as const,
-            channelId: 'incident_alerts',
+            channelId,
           },
         },
         apns: {
@@ -152,6 +159,11 @@ export class PushNotificationService {
     }
 
     try {
+      // Determine the appropriate notification channel
+      const isUVAlert =
+        notification.data?.type === 'uv_health_alert' || notification.data?.riskLevel !== undefined;
+      const channelId = isUVAlert ? 'uv_health_alerts' : 'incident_alerts';
+
       const message: admin.messaging.MulticastMessage = {
         tokens: deviceTokens,
         notification: {
@@ -164,7 +176,7 @@ export class PushNotificationService {
           notification: {
             sound: 'default',
             priority: 'high' as const,
-            channelId: 'incident_alerts',
+            channelId,
           },
         },
         apns: {
@@ -223,6 +235,7 @@ export class PushNotificationService {
       distance: string;
       incidentId: string;
     },
+
     reporterUserId?: mongoose.Types.ObjectId,
     reporterDeviceToken?: string
   ): Promise<{ notifiedCount: number }> {
