@@ -47,3 +47,16 @@ export const newTripValidator = [
     .isLength({ min: 1, max: 120 })
     .withMessage('Title must be between 1 and 120 characters'),
 ];
+
+export const ragQueryValidator = [
+  body('message')
+    .trim()
+    .notEmpty()
+    .withMessage('Message is required')
+    .isLength({ min: 1, max: 2000 })
+    .withMessage('Message must be between 1 and 2000 characters'),
+  body('language')
+    .optional()
+    .isIn(['en', 'si', 'ta'])
+    .withMessage('Language must be en, si, or ta'),
+];

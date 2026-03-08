@@ -31,13 +31,32 @@ export class CityRepository {
       if (colombo1) return [colombo1];
     }
 
+    // Use word boundaries to prevent "Colombo 1" from matching "Colombo 15"
+    // Escape special regex characters in search term
+    const escapedTerm = trimmedTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+    // Try exact match first (case-insensitive)
+    const exactMatch = await City.findOne({
+      $or: [
+        { city_name: new RegExp(`^${escapedTerm}$`, 'i') },
+        { 'name.en': new RegExp(`^${escapedTerm}$`, 'i') },
+        { 'name.si': new RegExp(`^${escapedTerm}$`, 'i') },
+        { 'name.ta': new RegExp(`^${escapedTerm}$`, 'i') },
+      ],
+    });
+
+    if (exactMatch) {
+      return [exactMatch];
+    }
+
+    // Fallback to partial match with word boundaries
     return City.find({
       $or: [
-        { city_name: new RegExp(trimmedTerm, 'i') },
+        { city_name: new RegExp(`\\b${escapedTerm}\\b`, 'i') },
         { slug: slugTerm },
-        { 'name.en': new RegExp(trimmedTerm, 'i') },
-        { 'name.si': new RegExp(trimmedTerm, 'i') },
-        { 'name.ta': new RegExp(trimmedTerm, 'i') },
+        { 'name.en': new RegExp(`\\b${escapedTerm}\\b`, 'i') },
+        { 'name.si': new RegExp(`\\b${escapedTerm}\\b`, 'i') },
+        { 'name.ta': new RegExp(`\\b${escapedTerm}\\b`, 'i') },
       ],
     }).limit(10);
   }

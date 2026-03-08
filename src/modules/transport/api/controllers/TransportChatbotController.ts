@@ -154,4 +154,40 @@ export class TransportChatbotController {
       timestamp: new Date().toISOString(),
     });
   };
+
+  /**
+   * Direct RAG query - no session/conversation needed
+   */
+  askRAG = async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const userId = req.user?.userId;
+      if (!userId) {
+        res.status(401).json({
+          success: false,
+          message: 'User not authenticated',
+        });
+        return;
+      }
+
+      const { message, language } = req.body;
+
+      if (!message || message.trim().length === 0) {
+        res.status(400).json({
+          success: false,
+          message: 'Message is required',
+        });
+        return;
+      }
+
+      const response = await this.chatbotService.queryRAG(message, language || 'en');
+
+      res.status(200).json({
+        success: true,
+        data: response,
+      });
+    } catch (error) {
+      logger.error('Error in askRAG:', error);
+      next(error);
+    }
+  };
 }

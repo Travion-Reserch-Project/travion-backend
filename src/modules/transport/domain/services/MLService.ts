@@ -311,6 +311,76 @@ export class MLService {
   }
 
   /**
+   * Search knowledge base using RAG (Retrieval-Augmented Generation)
+   * @param query - User's question
+   * @param filters - Optional filters for category, location, language
+   * @returns RAG response with answer and source documents
+   */
+  async searchKnowledge(
+    query: string,
+    filters?: {
+      category?: string;
+      origin?: string;
+      destination?: string;
+      language?: string;
+      use_rag?: boolean;
+    }
+  ): Promise<{
+    results: Array<{
+      id: string;
+      content: string;
+      score: number;
+      metadata: any;
+      distance: number;
+    }>;
+    answer: string;
+    generated_by: string;
+    query_language: string;
+    total_results: number;
+    search_time_ms: number;
+    rag_time_ms: number;
+  }> {
+    if (!this.isEnabled) {
+      throw new Error('ML Service is not enabled');
+    }
+
+    try {
+      const requestBody: any = {
+        query,
+        use_rag: filters?.use_rag !== false,
+        language: filters?.language || 'en',
+      };
+
+      // Add filters if provided
+      if (filters?.category || filters?.origin || filters?.destination) {
+        requestBody.filters = {
+          category: filters.category,
+          origin: filters.origin,
+          destination: filters.destination,
+        };
+      }
+
+      logger.info('Calling ML knowledge search:', {
+        query,
+        filters: requestBody.filters,
+        language: requestBody.language,
+      });
+
+      const response = await this.client.post('/api/knowledge/search', requestBody);
+
+      logger.info('ML knowledge search completed:', {
+        total_results: response.data.total_results,
+        search_time_ms: response.data.search_time_ms,
+      });
+
+      return response.data;
+    } catch (error) {
+      logger.error('Error calling ML knowledge search:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Check if ML service is healthy
    */
   async healthCheck(): Promise<boolean> {

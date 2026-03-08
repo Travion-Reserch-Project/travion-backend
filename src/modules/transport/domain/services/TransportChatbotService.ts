@@ -2,6 +2,7 @@ import { ConversationService } from './ConversationService';
 import { TransportService } from './TransportService';
 import { WeatherService } from './WeatherService';
 import { LLMService } from './LLMService';
+import { MLService } from './MLService';
 import { GoogleMapsService } from './GoogleMapsService';
 import { RouteContextBuilder, StaticRouteData, RouteContext } from './RouteContextBuilder';
 import { RankingService, RankedRoute } from './RankingService';
@@ -127,7 +128,15 @@ export interface ChatResponse {
         color: string;
       }>;
     };
-    processing_time_ms: number;
+    processing_time_ms?: number;
+    // RAG-related metadata
+    rag_enabled?: boolean;
+    sources?: Array<{
+      source: string;
+      category: string;
+    }>;
+    confidence_score?: number;
+    search_time_ms?: number;
   };
   suggestions?: string[];
 }
@@ -156,6 +165,7 @@ export class TransportChatbotService {
   private transportService: TransportService;
   private weatherService: WeatherService;
   private llmService: LLMService;
+  private mlService: MLService;
   private googleMapsService: GoogleMapsService;
   private routeContextBuilder: RouteContextBuilder;
   private rankingService: RankingService;
@@ -167,6 +177,7 @@ export class TransportChatbotService {
     this.transportService = new TransportService();
     this.weatherService = new WeatherService();
     this.llmService = new LLMService();
+    this.mlService = new MLService();
     this.googleMapsService = new GoogleMapsService();
     this.routeContextBuilder = new RouteContextBuilder();
     this.rankingService = new RankingService();
@@ -213,6 +224,9 @@ export class TransportChatbotService {
         entities: intent.entities,
         confidence: intent.confidence,
       });
+
+      // Note: Knowledge-based queries should use the separate /ask-rag endpoint
+      // This transport chatbot now focuses only on route/transport queries
 
       const isRouteIntent = intent.intent === 'route_query';
       let hadPendingRouteContext = false;
@@ -322,8 +336,12 @@ export class TransportChatbotService {
     destination?: string
   ): Promise<void> {
     try {
-      let savedOrigin: any = undefined;
-      let savedDestination: any = undefined;
+      let savedOrigin:
+        | { name: string; city_id?: number; coordinates?: { lat: number; lng: number } }
+        | undefined = undefined;
+      let savedDestination:
+        | { name: string; city_id?: number; coordinates?: { lat: number; lng: number } }
+        | undefined = undefined;
 
       // Resolve origin if provided
       if (origin) {
@@ -425,13 +443,15 @@ EXAMPLES:
 - "What time is the next bus" → intent: "time_query"
 - "I'm at Negombo" + (previous: "going to Galle") → intent: "route_query", origin: "Negombo", destination: "Galle"
 
-Return JSON with: intent, origin, destination, transport_type`;
+Return JSON with: intent, origin, destination, transport_type, date, time`;
 
       const result = await this.llmService.extractFieldsFromQuery(enhancedPrompt, [
         'origin',
         'destination',
         'transport_type',
         'intent',
+        'date',
+        'time',
       ]);
 
       logger.info(
@@ -444,6 +464,8 @@ Return JSON with: intent, origin, destination, transport_type`;
           origin: result.extracted.origin,
           destination: result.extracted.destination,
           transport_type: result.extracted.transport_type as 'bus' | 'train' | 'any',
+          date: result.extracted.date,
+          time: result.extracted.time,
         },
         confidence: 0.8,
       };
@@ -459,6 +481,7 @@ Return JSON with: intent, origin, destination, transport_type`;
    */
   private extractIntentFallback(message: string, context: IMessage[]): ExtractedIntent {
     const lowerMessage = message.toLowerCase();
+    const temporalHints = this.extractTemporalHints(message);
 
     // Check for greetings
     if (/^(hi|hello|hey|greetings|good morning|good afternoon|good evening)/i.test(lowerMessage)) {
@@ -510,6 +533,8 @@ Return JSON with: intent, origin, destination, transport_type`;
           transport_type: transportType,
           origin: fromMatch ? fromMatch[1].trim() : undefined,
           destination: toMatch ? toMatch[1].trim() : undefined,
+          date: temporalHints.date,
+          time: temporalHints.time,
         },
         confidence: 0.85,
       };
@@ -564,6 +589,8 @@ Return JSON with: intent, origin, destination, transport_type`;
         entities: {
           origin,
           destination,
+          date: temporalHints.date,
+          time: temporalHints.time,
         },
         confidence: origin && destination ? 0.85 : 0.6,
       };
@@ -999,7 +1026,11 @@ Return JSON with: intent, origin, destination, transport_type`;
 
         // Infer user preferences from message and rank routes
         const userWeights = this.rankingService.guessUserWeights(request.message);
-        const departureTime = this.resolveDepartureTime(intent.entities.time, request.message);
+        const departureTime = this.resolveDepartureTime(
+          intent.entities.date,
+          intent.entities.time,
+          request.message
+        );
 
         // Pass coordinates to enable ML ranking
         const rankedRoutes = await this.rankingService.rankRoutes(validContexts, userWeights, {
@@ -1023,23 +1054,26 @@ Return JSON with: intent, origin, destination, transport_type`;
           // Continue without incidents
         }
 
-        // Generate natural language explanation from top routes (fallback if LLM unavailable)
+        // Select diverse routes for display (ensure different transport types are shown)
+        const displayRoutes = this.selectDiverseRoutes(rankedRoutes, 3);
+
+        // Generate explanation using selected transport methods (not all route variants)
         let explanation: string;
         try {
           explanation = await this.llmService.generateRouteExplanation(
-            rankedRoutes,
+            displayRoutes,
             origin!,
             destination!
           );
         } catch (error) {
           logger.warn('Error generating explanation:', (error as Error).message);
           // Fallback explanation
-          explanation = `I found ${rankedRoutes.length} route options from ${origin} to ${destination}.`;
+          explanation = `I found ${displayRoutes.length} transport methods from ${origin} to ${destination}.`;
         }
 
         // Format detailed response with top 3 routes and incidents
         const detailedResponse = this.formatIntelligentRouteResponse(
-          rankedRoutes,
+          displayRoutes,
           explanation,
           departureTime,
           routeIncidents
@@ -1088,7 +1122,7 @@ Return JSON with: intent, origin, destination, transport_type`;
             ],
             transport_recommendations: {
               ranking_weights: userWeights,
-              ranked_routes: rankedRoutes.slice(0, 3).map((route) => ({
+              ranked_routes: displayRoutes.map((route) => ({
                 route_id: route.route_id,
                 transport_type: route.transport_type,
                 score: route.score,
@@ -1117,7 +1151,7 @@ Return JSON with: intent, origin, destination, transport_type`;
             map_data: {
               origin: originCoords,
               destination: destCoords,
-              routes: rankedRoutes.slice(0, 3).map((route) => ({
+              routes: displayRoutes.map((route) => ({
                 route_id: route.route_id,
                 transport_type: route.transport_type,
                 polyline: route.static.polyline,
@@ -1151,6 +1185,53 @@ Return JSON with: intent, origin, destination, transport_type`;
         message_type: 'error',
       };
     }
+  }
+
+  /**
+   * Select diverse routes for display, ensuring different transport types are represented
+   * @param rankedRoutes All ranked routes
+   * @param count Number of routes to select (default 3)
+   * @returns Array of diverse routes prioritizing different transport types
+   */
+  private selectDiverseRoutes(rankedRoutes: RankedRoute[], count: number = 3): RankedRoute[] {
+    if (rankedRoutes.length <= count) {
+      return rankedRoutes;
+    }
+
+    const selected: RankedRoute[] = [];
+    const seenTypes = new Set<string>();
+
+    // First pass: Select top route of each transport type
+    for (const route of rankedRoutes) {
+      if (!seenTypes.has(route.transport_type)) {
+        selected.push(route);
+        seenTypes.add(route.transport_type);
+
+        if (selected.length === count) {
+          logger.info('Selected diverse routes:', {
+            routes: selected.map((r) => `${r.transport_type} (score: ${r.score.toFixed(2)})`),
+          });
+          return selected;
+        }
+      }
+    }
+
+    // Second pass: Fill remaining slots with highest-ranked routes
+    for (const route of rankedRoutes) {
+      if (!selected.includes(route)) {
+        selected.push(route);
+
+        if (selected.length === count) {
+          break;
+        }
+      }
+    }
+
+    logger.info('Selected diverse routes:', {
+      routes: selected.map((r) => `${r.transport_type} (score: ${r.score.toFixed(2)})`),
+    });
+
+    return selected;
   }
 
   /**
@@ -1240,11 +1321,11 @@ Return JSON with: intent, origin, destination, transport_type`;
 
     response += '\n';
 
-    // Show top 3 routes with detailed metrics
+    // Show all provided routes with detailed metrics (already filtered for diversity)
     if (rankedRoutes.length > 0) {
       response += '**Detailed Route Options:**\n\n';
 
-      rankedRoutes.slice(0, 3).forEach((route, index) => {
+      rankedRoutes.forEach((route, index) => {
         const medalEmoji = index === 0 ? '🥇' : index === 1 ? '🥈' : '🥉';
         response += `${medalEmoji} **Option ${index + 1}: ${route.transport_type.toUpperCase()}**\n`;
         response += `   Provider: ${route.static.operator_name}\n`;
@@ -1377,19 +1458,26 @@ Return JSON with: intent, origin, destination, transport_type`;
     return hasKnownStationId || hasLocationHint;
   }
 
-  private resolveDepartureTime(extractedTime?: string, message?: string): Date {
-    const baseDate = new Date();
-    const candidates = [extractedTime, message].filter((v): v is string => Boolean(v));
+  private resolveDepartureTime(
+    extractedDate?: string,
+    extractedTime?: string,
+    message?: string
+  ): Date {
+    const now = new Date();
+    const baseDate =
+      this.parseDateFromText(extractedDate) || this.parseDateFromText(message) || now;
 
-    for (const text of candidates) {
-      const match = text.match(/\b(1[0-2]|0?[1-9])(?::([0-5][0-9]))?\s*(am|pm)\b/i);
-      if (!match) {
-        continue;
-      }
+    const timeSource = extractedTime || message;
+    if (!timeSource) {
+      return baseDate;
+    }
 
-      let hour = Number(match[1]);
-      const minute = Number(match[2] || '0');
-      const period = match[3].toLowerCase();
+    // 12-hour format: 10am, 10:30 pm
+    const ampmMatch = timeSource.match(/\b(1[0-2]|0?[1-9])(?::([0-5][0-9]))?\s*(am|pm)\b/i);
+    if (ampmMatch) {
+      let hour = Number(ampmMatch[1]);
+      const minute = Number(ampmMatch[2] || '0');
+      const period = ampmMatch[3].toLowerCase();
 
       if (period === 'pm' && hour !== 12) {
         hour += 12;
@@ -1403,7 +1491,167 @@ Return JSON with: intent, origin, destination, transport_type`;
       return parsed;
     }
 
+    // 24-hour format: 14:30
+    const hhmmMatch = timeSource.match(/\b([01]?\d|2[0-3]):([0-5]\d)\b/);
+    if (hhmmMatch) {
+      const parsed = new Date(baseDate);
+      parsed.setHours(Number(hhmmMatch[1]), Number(hhmmMatch[2]), 0, 0);
+      return parsed;
+    }
+
     return baseDate;
+  }
+
+  private extractTemporalHints(message: string): { date?: string; time?: string } {
+    const date = this.extractDatePhrase(message);
+    const time = this.extractTimePhrase(message);
+    return { date, time };
+  }
+
+  private extractTimePhrase(text: string): string | undefined {
+    const ampmMatch = text.match(/\b(1[0-2]|0?[1-9])(?::([0-5][0-9]))?\s*(am|pm)\b/i);
+    if (ampmMatch) {
+      return ampmMatch[0];
+    }
+
+    const hhmmMatch = text.match(/\b([01]?\d|2[0-3]):([0-5]\d)\b/);
+    if (hhmmMatch) {
+      return hhmmMatch[0];
+    }
+
+    return undefined;
+  }
+
+  private extractDatePhrase(text: string): string | undefined {
+    const explicitDate = text.match(
+      /\b(\d{1,2}(?:st|nd|rd|th)?\s+(?:jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)(?:\s+\d{4})?)\b/i
+    );
+    if (explicitDate) {
+      return explicitDate[1];
+    }
+
+    const monthFirstDate = text.match(
+      /\b((?:jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)\s+\d{1,2}(?:st|nd|rd|th)?(?:,?\s*\d{4})?)\b/i
+    );
+    if (monthFirstDate) {
+      return monthFirstDate[1];
+    }
+
+    const isoDate = text.match(/\b\d{4}-\d{2}-\d{2}\b/);
+    if (isoDate) {
+      return isoDate[0];
+    }
+
+    return undefined;
+  }
+
+  private parseDateFromText(text?: string): Date | null {
+    if (!text) {
+      return null;
+    }
+
+    const cleaned = text
+      .toLowerCase()
+      .replace(/\b(on|at|by|for)\b/g, ' ')
+      .replace(/(\d)(st|nd|rd|th)\b/g, '$1')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    const monthMap: Record<string, number> = {
+      jan: 0,
+      january: 0,
+      feb: 1,
+      february: 1,
+      mar: 2,
+      march: 2,
+      apr: 3,
+      april: 3,
+      may: 4,
+      jun: 5,
+      june: 5,
+      jul: 6,
+      july: 6,
+      aug: 7,
+      august: 7,
+      sep: 8,
+      sept: 8,
+      september: 8,
+      oct: 9,
+      october: 9,
+      nov: 10,
+      november: 10,
+      dec: 11,
+      december: 11,
+    };
+
+    // Parse: "1 april" or "1 april 2026"
+    const dayMonthMatch = cleaned.match(
+      /^(\d{1,2})\s+(jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)(?:\s+(\d{4}))?$/i
+    );
+    if (dayMonthMatch) {
+      const day = Number(dayMonthMatch[1]);
+      const month = monthMap[dayMonthMatch[2].toLowerCase()];
+      const explicitYear = dayMonthMatch[3] ? Number(dayMonthMatch[3]) : undefined;
+
+      if (month !== undefined) {
+        const now = new Date();
+        let year = explicitYear ?? now.getFullYear();
+        let parsed = new Date(year, month, day);
+
+        // If year is omitted and the date has already passed this year, use next year.
+        if (!explicitYear) {
+          const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+          if (parsed < today) {
+            year += 1;
+            parsed = new Date(year, month, day);
+          }
+        }
+
+        if (!Number.isNaN(parsed.getTime())) {
+          return parsed;
+        }
+      }
+    }
+
+    // Parse: "april 1" or "april 1 2026"
+    const monthDayMatch = cleaned.match(
+      /^(jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)\s+(\d{1,2})(?:\s*,?\s*(\d{4}))?$/i
+    );
+    if (monthDayMatch) {
+      const month = monthMap[monthDayMatch[1].toLowerCase()];
+      const day = Number(monthDayMatch[2]);
+      const explicitYear = monthDayMatch[3] ? Number(monthDayMatch[3]) : undefined;
+
+      if (month !== undefined) {
+        const now = new Date();
+        let year = explicitYear ?? now.getFullYear();
+        let parsed = new Date(year, month, day);
+
+        if (!explicitYear) {
+          const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+          if (parsed < today) {
+            year += 1;
+            parsed = new Date(year, month, day);
+          }
+        }
+
+        if (!Number.isNaN(parsed.getTime())) {
+          return parsed;
+        }
+      }
+    }
+
+    const parsedMs = Date.parse(cleaned);
+    if (Number.isNaN(parsedMs)) {
+      return null;
+    }
+
+    const parsed = new Date(parsedMs);
+    if (Number.isNaN(parsed.getTime())) {
+      return null;
+    }
+
+    return parsed;
   }
 
   private isNightTravelWindow(departureTime: Date): boolean {
@@ -2045,7 +2293,11 @@ Focus on attractions ALONG OR NEAR this route.`;
     context: IMessage[]
   ): Promise<ChatResponse> {
     try {
-      // Check if there's a stored route context to help answer follow-up questions
+      logger.info('Handling general question with LLM', {
+        query: request.message,
+      });
+
+      // Use existing LLM with context
       const routeContext = conversation.context;
       let contextInfo = '';
 
@@ -2208,5 +2460,59 @@ Be friendly, culturally aware, and helpful. If you don't know something, admit i
       title: newConversation.title || defaultTitle,
       created_at: newConversation.createdAt,
     };
+  }
+
+  /**
+   * Direct RAG query - simple standalone endpoint for knowledge-based questions
+   * No session/conversation history needed
+   */
+  async queryRAG(
+    message: string,
+    language: string = 'en'
+  ): Promise<{
+    answer: string;
+    sources: Array<{
+      source: string;
+      category: string;
+    }>;
+    confidence_score: number;
+    search_time_ms: number;
+    total_results: number;
+  }> {
+    try {
+      logger.info('Direct RAG query:', {
+        message,
+        language,
+      });
+
+      const filters = {
+        use_rag: true,
+        language,
+      };
+
+      // Call ML RAG service directly
+      const ragResponse = await this.mlService.searchKnowledge(message, filters);
+
+      logger.info('RAG response:', {
+        query: message,
+        results_count: ragResponse.total_results,
+        top_score: ragResponse.results[0]?.score,
+        search_time_ms: ragResponse.search_time_ms,
+      });
+
+      return {
+        answer: ragResponse.answer,
+        sources: ragResponse.results.slice(0, 3).map((r) => ({
+          source: r.metadata.source,
+          category: r.metadata.category,
+        })),
+        confidence_score: ragResponse.results[0]?.score || 0,
+        search_time_ms: ragResponse.search_time_ms,
+        total_results: ragResponse.total_results,
+      };
+    } catch (error) {
+      logger.error('RAG query failed:', error);
+      throw error;
+    }
   }
 }
