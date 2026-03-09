@@ -771,6 +771,7 @@ export interface AIEngineError {
  */
 export interface SimpleCrowdPredictionRequest {
   location_name: string; // Location name (auto-detects type)
+  date?: string; // Optional date in YYYY-MM-DD format
 }
 
 /**
@@ -800,6 +801,7 @@ export interface SimpleCrowdPredictionResponse {
  */
 export interface SimpleGoldenHourRequest {
   location_name: string; // Location name (auto-looks up coordinates)
+  date?: string; // Optional date in YYYY-MM-DD format
 }
 
 /**

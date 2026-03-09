@@ -386,11 +386,13 @@ export class AIEngineService {
   /**
    * Get simple crowd prediction by location name
    */
-  async getSimpleCrowdPrediction(locationName: string): Promise<SimpleCrowdPredictionResponse> {
+  async getSimpleCrowdPrediction(locationName: string, date?: string): Promise<SimpleCrowdPredictionResponse> {
     try {
+      const body: Record<string, string> = { location_name: locationName };
+      if (date) body.date = date;
       return await httpClient.post<SimpleCrowdPredictionResponse>(
         aiEngineConfig.endpoints.simpleCrowd,
-        { location_name: locationName }
+        body
       );
     } catch (error) {
       this.handleError(error, 'simple crowd prediction');
@@ -674,11 +676,13 @@ export class AIEngineService {
   /**
    * Get simple golden hour by location name
    */
-  async getSimpleGoldenHour(locationName: string): Promise<SimpleGoldenHourResponse> {
+  async getSimpleGoldenHour(locationName: string, date?: string): Promise<SimpleGoldenHourResponse> {
     try {
+      const body: Record<string, string> = { location_name: locationName };
+      if (date) body.date = date;
       return await httpClient.post<SimpleGoldenHourResponse>(
         aiEngineConfig.endpoints.simpleGoldenHour,
-        { location_name: locationName }
+        body
       );
     } catch (error) {
       this.handleError(error, 'simple golden hour');

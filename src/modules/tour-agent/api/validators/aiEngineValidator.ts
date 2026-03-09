@@ -285,6 +285,9 @@ export const simpleCrowdSchema = Joi.object({
     'string.max': 'Location name cannot exceed 100 characters',
     'any.required': 'Location name is required',
   }),
+  date: Joi.string().pattern(/^\d{4}-\d{2}-\d{2}$/).optional().messages({
+    'string.pattern.base': 'Date must be in YYYY-MM-DD format',
+  }),
 });
 
 /**
@@ -296,6 +299,9 @@ export const simpleGoldenHourSchema = Joi.object({
     'string.min': 'Location name must be at least 2 characters',
     'string.max': 'Location name cannot exceed 100 characters',
     'any.required': 'Location name is required',
+  }),
+  date: Joi.string().pattern(/^\d{4}-\d{2}-\d{2}$/).optional().messages({
+    'string.pattern.base': 'Date must be in YYYY-MM-DD format',
   }),
 });
 
