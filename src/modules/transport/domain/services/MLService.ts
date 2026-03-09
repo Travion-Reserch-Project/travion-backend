@@ -51,10 +51,12 @@ export class MLService {
   private client: AxiosInstance;
   private baseUrl: string;
   private isEnabled: boolean;
+  private knowledgeSearchTimeoutMs: number;
 
   constructor() {
     this.baseUrl = process.env.ML_SERVICE_URL || 'http://localhost:8001';
     this.isEnabled = process.env.ML_SERVICE_ENABLED === 'true';
+    this.knowledgeSearchTimeoutMs = Number(process.env.ML_KNOWLEDGE_TIMEOUT_MS || 60000);
 
     this.client = axios.create({
       baseURL: this.baseUrl,
@@ -67,7 +69,9 @@ export class MLService {
     if (!this.isEnabled) {
       logger.warn('ML Service is disabled');
     } else {
-      logger.info(`ML Service initialized at ${this.baseUrl}`);
+      logger.info(
+        `ML Service initialized at ${this.baseUrl} (knowledge timeout: ${this.knowledgeSearchTimeoutMs}ms)`
+      );
     }
   }
 
@@ -366,7 +370,10 @@ export class MLService {
         language: requestBody.language,
       });
 
-      const response = await this.client.post('/api/knowledge/search', requestBody);
+      const response = await this.client.post('/api/knowledge/search', requestBody, {
+        // Knowledge RAG calls can take longer on cold starts/model load.
+        timeout: this.knowledgeSearchTimeoutMs,
+      });
 
       logger.info('ML knowledge search completed:', {
         total_results: response.data.total_results,

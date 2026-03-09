@@ -16,6 +16,7 @@ export interface MLFeatures {
   is_peak_hours: 0 | 1;
   is_weekend: 0 | 1;
   is_long_weekend: 0 | 1;
+  trip_hour: number; // 0-23
 }
 
 export interface FeatureExtractionContext {
@@ -97,6 +98,7 @@ export class MLFeatureExtractor {
       is_peak_hours: this.isPeakHours(departureTime),
       is_weekend: this.isWeekend(departureTime),
       is_long_weekend: isLongWeekend ? 1 : 0,
+      trip_hour: departureTime.getHours(),
     };
 
     logger.info('ML features extracted successfully', features);
