@@ -118,8 +118,8 @@ export interface IDeltaPlan {
   generatedAt: Date;
   reason: string; // Why this delta was generated
   triggeringAlertId?: string;
-  originalItems: IItineraryItem[];
-  suggestedItems: IItineraryItem[];
+  originalItems: Record<string, unknown>[];
+  suggestedItems: Record<string, unknown>[];
   affectedDates: Date[];
   impactSummary: string;
   userAccepted?: boolean;
@@ -418,11 +418,11 @@ const deltaPlanSchema = new Schema<IDeltaPlan>(
       type: String,
     },
     originalItems: {
-      type: [Schema.Types.Mixed],
+      type: [Object],
       default: [],
     },
     suggestedItems: {
-      type: [Schema.Types.Mixed],
+      type: [Object],
       default: [],
     },
     affectedDates: [

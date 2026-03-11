@@ -16,10 +16,21 @@
  * Runs every 4 hours by default (configurable per trip)
  */
 
-import { TripPlan, ITripPlan, MonitoringStatus, AlertSeverity, AlertCategory } from '../models/TripPlan';
-import type { IActiveAlert, IMonitoringCheck, IDeltaPlan, IWeatherForecast } from '../models/TripPlan';
-import { httpClient } from '../utils/httpClient';
-import { logger } from '../config/logger';
+import {
+  TripPlan,
+  ITripPlan,
+  MonitoringStatus,
+  AlertSeverity,
+  AlertCategory,
+} from '../models/TripPlan';
+import type {
+  IActiveAlert,
+  IMonitoringCheck,
+  IDeltaPlan,
+  IWeatherForecast,
+} from '../models/TripPlan';
+import { httpClient } from '../../../../shared/utils/httpClient';
+import { logger } from '../../../../shared/config/logger';
 import { v4 as uuidv4 } from 'uuid';
 
 // ============================================================================
@@ -28,24 +39,24 @@ import { v4 as uuidv4 } from 'uuid';
 
 interface ShadowWatcherConfig {
   enabled: boolean;
-  checkIntervalMs: number;        // How often to run the worker loop
-  batchSize: number;              // How many trips to check per cycle
+  checkIntervalMs: number; // How often to run the worker loop
+  batchSize: number; // How many trips to check per cycle
   weatherCheckEnabled: boolean;
   alertCheckEnabled: boolean;
   deltaPlanEnabled: boolean;
   notificationsEnabled: boolean;
-  aiEngineTimeout: number;        // Timeout for AI Engine requests
+  aiEngineTimeout: number; // Timeout for AI Engine requests
 }
 
 const DEFAULT_CONFIG: ShadowWatcherConfig = {
   enabled: true,
-  checkIntervalMs: 5 * 60 * 1000,   // Check for due trips every 5 minutes
-  batchSize: 10,                     // Process 10 trips per cycle
+  checkIntervalMs: 5 * 60 * 1000, // Check for due trips every 5 minutes
+  batchSize: 10, // Process 10 trips per cycle
   weatherCheckEnabled: true,
   alertCheckEnabled: true,
   deltaPlanEnabled: true,
   notificationsEnabled: true,
-  aiEngineTimeout: 60000,            // 60 second timeout for AI calls
+  aiEngineTimeout: 60000, // 60 second timeout for AI calls
 };
 
 // ============================================================================
@@ -135,9 +146,9 @@ export class ShadowWatcher {
         try {
           await this.monitorTrip(trip);
         } catch (error) {
-          logger.error(`ShadowWatcher: Error monitoring trip ${trip._id}`, {
+          logger.error(`ShadowWatcher: Error monitoring trip ${trip.id}`, {
             error: (error as Error).message,
-            tripId: trip._id,
+            tripId: trip.id,
           });
         }
       }
@@ -147,7 +158,6 @@ export class ShadowWatcher {
         tripsChecked: tripsToCheck.length,
         durationMs: cycleDuration,
       });
-
     } catch (error) {
       logger.error('ShadowWatcher: Cycle failed', {
         error: (error as Error).message,
@@ -166,10 +176,7 @@ export class ShadowWatcher {
     // Find trips with ACTIVE_MONITORING status that are due for check
     const trips = await TripPlan.find({
       monitoringStatus: MonitoringStatus.ACTIVE_MONITORING,
-      $or: [
-        { nextScheduledCheck: { $lte: now } },
-        { nextScheduledCheck: { $exists: false } },
-      ],
+      $or: [{ nextScheduledCheck: { $lte: now } }, { nextScheduledCheck: { $exists: false } }],
       startDate: { $gte: new Date(now.getTime() - 24 * 60 * 60 * 1000) }, // Trip hasn't ended
     })
       .sort({ nextScheduledCheck: 1 })
@@ -182,7 +189,7 @@ export class ShadowWatcher {
    * Monitor a single trip
    */
   async monitorTrip(trip: ITripPlan): Promise<void> {
-    const tripId = trip._id.toString();
+    const tripId = trip.id;
     logger.info(`ShadowWatcher: Monitoring trip ${tripId}`, {
       title: trip.title,
       startDate: trip.startDate,
@@ -276,7 +283,6 @@ export class ShadowWatcher {
         alertsFound,
         durationMs: checkDuration,
       });
-
     } catch (error) {
       logger.error(`ShadowWatcher: Failed to monitor trip ${tripId}`, {
         error: (error as Error).message,
@@ -310,7 +316,7 @@ export class ShadowWatcher {
 
     try {
       // Build itinerary items for AI Engine
-      const itineraryItems = trip.itinerary.map(item => ({
+      const itineraryItems = trip.itinerary.map((item) => ({
         locationName: item.locationName,
         latitude: item.latitude,
         longitude: item.longitude,
@@ -338,10 +344,14 @@ export class ShadowWatcher {
           }>;
           critical_alerts: Array<{ severity: string; description: string }>;
         }>;
-      }>('/api/v1/tools/weather/validate', {
-        itinerary: itineraryItems,
-        trip_date: trip.startDate.toISOString(),
-      }, { timeout: this.config.aiEngineTimeout });
+      }>(
+        '/api/v1/tools/weather/validate',
+        {
+          itinerary: itineraryItems,
+          trip_date: trip.startDate.toISOString(),
+        },
+        { timeout: this.config.aiEngineTimeout }
+      );
 
       result.score = response.score;
 
@@ -386,15 +396,17 @@ export class ShadowWatcher {
             rainProbability: forecast.rain_probability,
             windSpeed: forecast.wind_speed_kmh,
             suitabilityScore: report.trip_suitability_score,
-            alerts: forecast.alerts?.map(a => a.description) || [],
+            alerts:
+              forecast.alerts?.map(
+                (a: { severity: string; description: string }) => a.description
+              ) || [],
             lastUpdated: new Date(),
           });
         }
       }
-
     } catch (error) {
       logger.warn('ShadowWatcher: Weather check failed', {
-        tripId: trip._id,
+        tripId: trip.id,
         error: (error as Error).message,
       });
       result.details.push('Weather check unavailable');
@@ -421,7 +433,7 @@ export class ShadowWatcher {
 
     try {
       // Build itinerary items for AI Engine
-      const itineraryItems = trip.itinerary.map(item => ({
+      const itineraryItems = trip.itinerary.map((item) => ({
         locationName: item.locationName,
         latitude: item.latitude,
         longitude: item.longitude,
@@ -454,10 +466,14 @@ export class ShadowWatcher {
           source_url?: string;
         }>;
         recommendations: string[];
-      }>('/api/v1/tools/alerts/validate', {
-        itinerary: itineraryItems,
-        days_back: 7,
-      }, { timeout: this.config.aiEngineTimeout });
+      }>(
+        '/api/v1/tools/alerts/validate',
+        {
+          itinerary: itineraryItems,
+          days_back: 7,
+        },
+        { timeout: this.config.aiEngineTimeout }
+      );
 
       if (!response.is_safe) {
         result.hasIssues = true;
@@ -484,15 +500,14 @@ export class ShadowWatcher {
 
       // Add non-blocking alerts as warnings
       for (const alert of response.all_alerts || []) {
-        if (!response.blocking_alerts.find(b => b.id === alert.id)) {
+        if (!response.blocking_alerts.find((b: { id: string }) => b.id === alert.id)) {
           result.hasIssues = true;
           result.details.push(`Warning: ${alert.title}`);
         }
       }
-
     } catch (error) {
       logger.warn('ShadowWatcher: Alert check failed', {
-        tripId: trip._id,
+        tripId: trip.id,
         error: (error as Error).message,
       });
       result.details.push('Alert check unavailable');
@@ -507,7 +522,7 @@ export class ShadowWatcher {
   private async generateDeltaPlan(trip: ITripPlan): Promise<IDeltaPlan | null> {
     try {
       // Get active alerts for context
-      const activeAlerts = trip.activeAlerts.filter(a => !a.isAcknowledged);
+      const activeAlerts = trip.activeAlerts.filter((a) => !a.isAcknowledged);
 
       // Build request for AI Engine
       const response = await httpClient.post<{
@@ -520,22 +535,26 @@ export class ShadowWatcher {
           impact_summary: string;
           ai_explanation: string;
         };
-      }>('/api/v1/tools/delta-plan/generate', {
-        trip: {
-          title: trip.title,
-          start_date: trip.startDate.toISOString(),
-          end_date: trip.endDate.toISOString(),
-          destinations: trip.destinations,
-          itinerary: trip.itinerary,
+      }>(
+        '/api/v1/tools/delta-plan/generate',
+        {
+          trip: {
+            title: trip.title,
+            start_date: trip.startDate.toISOString(),
+            end_date: trip.endDate.toISOString(),
+            destinations: trip.destinations,
+            itinerary: trip.itinerary,
+          },
+          active_alerts: activeAlerts.map((a) => ({
+            category: a.category,
+            severity: a.severity,
+            title: a.title,
+            affected_location: a.affectedLocation,
+            recommended_action: a.recommendedAction,
+          })),
         },
-        active_alerts: activeAlerts.map(a => ({
-          category: a.category,
-          severity: a.severity,
-          title: a.title,
-          affected_location: a.affectedLocation,
-          recommended_action: a.recommendedAction,
-        })),
-      }, { timeout: this.config.aiEngineTimeout });
+        { timeout: this.config.aiEngineTimeout }
+      );
 
       if (!response.success || !response.delta_plan) {
         return null;
@@ -546,24 +565,23 @@ export class ShadowWatcher {
         generatedAt: new Date(),
         reason: response.delta_plan.reason,
         triggeringAlertId: activeAlerts[0]?.alertId,
-        originalItems: response.delta_plan.original_items as unknown[],
-        suggestedItems: response.delta_plan.suggested_items as unknown[],
-        affectedDates: response.delta_plan.affected_dates.map(d => new Date(d)),
+        originalItems: response.delta_plan.original_items,
+        suggestedItems: response.delta_plan.suggested_items,
+        affectedDates: response.delta_plan.affected_dates.map((d: string) => new Date(d)),
         impactSummary: response.delta_plan.impact_summary,
         aiExplanation: response.delta_plan.ai_explanation,
       };
 
       logger.info('ShadowWatcher: Delta plan generated', {
-        tripId: trip._id,
+        tripId: trip.id,
         deltaId: deltaPlan.deltaId,
         reason: deltaPlan.reason,
       });
 
       return deltaPlan;
-
     } catch (error) {
       logger.warn('ShadowWatcher: Delta plan generation failed', {
-        tripId: trip._id,
+        tripId: trip.id,
         error: (error as Error).message,
       });
       return null;
@@ -576,7 +594,7 @@ export class ShadowWatcher {
   private async addAlertToTrip(trip: ITripPlan, alert: IActiveAlert): Promise<void> {
     // Check if alert already exists (by comparing title and location)
     const exists = trip.activeAlerts.some(
-      a => a.title === alert.title && a.affectedLocation === alert.affectedLocation
+      (a) => a.title === alert.title && a.affectedLocation === alert.affectedLocation
     );
 
     if (!exists) {
@@ -599,16 +617,24 @@ export class ShadowWatcher {
     details: string[]
   ): Promise<void> {
     // Check notification preferences
-    if (!trip.notificationPreferences.enablePush &&
-        !trip.notificationPreferences.enableEmail &&
-        !trip.notificationPreferences.enableSms) {
+    if (
+      !trip.notificationPreferences.enablePush &&
+      !trip.notificationPreferences.enableEmail &&
+      !trip.notificationPreferences.enableSms
+    ) {
       return;
     }
 
     const severity = status === 'failed' ? AlertSeverity.HIGH : AlertSeverity.MEDIUM;
 
     // Check threshold
-    const severityOrder = [AlertSeverity.INFO, AlertSeverity.LOW, AlertSeverity.MEDIUM, AlertSeverity.HIGH, AlertSeverity.CRITICAL];
+    const severityOrder = [
+      AlertSeverity.INFO,
+      AlertSeverity.LOW,
+      AlertSeverity.MEDIUM,
+      AlertSeverity.HIGH,
+      AlertSeverity.CRITICAL,
+    ];
     const thresholdIndex = severityOrder.indexOf(trip.notificationPreferences.alertThreshold);
     const currentIndex = severityOrder.indexOf(severity);
 
@@ -642,7 +668,7 @@ export class ShadowWatcher {
     trip.notifications.push(notification);
 
     logger.info('ShadowWatcher: Notification sent', {
-      tripId: trip._id,
+      tripId: trip.id,
       type: notification.type,
       channels: notification.sentVia,
     });
@@ -653,17 +679,17 @@ export class ShadowWatcher {
    */
   private mapAlertCategory(category: string): AlertCategory {
     const mapping: Record<string, AlertCategory> = {
-      'protest': AlertCategory.PROTEST,
-      'strike': AlertCategory.STRIKE,
-      'natural_disaster': AlertCategory.NATURAL_DISASTER,
-      'landslide': AlertCategory.LANDSLIDE,
-      'flood': AlertCategory.FLOOD,
-      'road_closure': AlertCategory.ROAD_CLOSURE,
-      'transport_disruption': AlertCategory.TRANSPORT_DISRUPTION,
-      'security_incident': AlertCategory.SECURITY_INCIDENT,
-      'health_emergency': AlertCategory.HEALTH_EMERGENCY,
-      'weather': AlertCategory.WEATHER,
-      'wildlife_danger': AlertCategory.WILDLIFE_DANGER,
+      protest: AlertCategory.PROTEST,
+      strike: AlertCategory.STRIKE,
+      natural_disaster: AlertCategory.NATURAL_DISASTER,
+      landslide: AlertCategory.LANDSLIDE,
+      flood: AlertCategory.FLOOD,
+      road_closure: AlertCategory.ROAD_CLOSURE,
+      transport_disruption: AlertCategory.TRANSPORT_DISRUPTION,
+      security_incident: AlertCategory.SECURITY_INCIDENT,
+      health_emergency: AlertCategory.HEALTH_EMERGENCY,
+      weather: AlertCategory.WEATHER,
+      wildlife_danger: AlertCategory.WILDLIFE_DANGER,
     };
     return mapping[category.toLowerCase()] || AlertCategory.GENERAL;
   }
@@ -673,11 +699,11 @@ export class ShadowWatcher {
    */
   private mapAlertSeverity(severity: string): AlertSeverity {
     const mapping: Record<string, AlertSeverity> = {
-      'info': AlertSeverity.INFO,
-      'low': AlertSeverity.LOW,
-      'medium': AlertSeverity.MEDIUM,
-      'high': AlertSeverity.HIGH,
-      'critical': AlertSeverity.CRITICAL,
+      info: AlertSeverity.INFO,
+      low: AlertSeverity.LOW,
+      medium: AlertSeverity.MEDIUM,
+      high: AlertSeverity.HIGH,
+      critical: AlertSeverity.CRITICAL,
     };
     return mapping[severity.toLowerCase()] || AlertSeverity.MEDIUM;
   }
