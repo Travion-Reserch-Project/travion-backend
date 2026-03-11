@@ -16,6 +16,7 @@ export interface MLFeatures {
   is_peak_hours: 0 | 1;
   is_weekend: 0 | 1;
   is_long_weekend: 0 | 1;
+  trip_hour: number; // 0-23
 }
 
 export interface FeatureExtractionContext {
@@ -63,18 +64,29 @@ export class MLFeatureExtractor {
     });
 
     // Extract features in parallel for efficiency
-    const [weather, trafficScore, isPoyaDay, isLongWeekend] = await Promise.all([
-      this.extractWeatherFeature(context.origin.lat, context.origin.lng),
-      this.extractTrafficScore(
-        context.origin.lat,
-        context.origin.lng,
-        context.destination.lat,
-        context.destination.lng,
-        departureTime
-      ),
-      this.holidayService.isPoyaDay(departureTime),
-      this.holidayService.isLongWeekend(departureTime),
-    ]);
+    const [weather, trafficScore, isPoyaDay, isLongWeekend, isPublicHoliday, holidayName] =
+      await Promise.all([
+        this.extractWeatherFeature(context.origin.lat, context.origin.lng),
+        this.extractTrafficScore(
+          context.origin.lat,
+          context.origin.lng,
+          context.destination.lat,
+          context.destination.lng,
+          departureTime
+        ),
+        this.holidayService.isPoyaDay(departureTime),
+        this.holidayService.isLongWeekend(departureTime),
+        this.holidayService.isPublicHoliday(departureTime),
+        this.holidayService.getHolidayName(departureTime),
+      ]);
+
+    logger.info('Holiday feature evaluation:', {
+      departure_date: departureTime.toISOString(),
+      is_public_holiday: isPublicHoliday,
+      is_poya_day: isPoyaDay,
+      is_long_weekend: isLongWeekend,
+      holiday_name: holidayName,
+    });
 
     const features: MLFeatures = {
       distance_km: context.distance_km,
@@ -86,6 +98,7 @@ export class MLFeatureExtractor {
       is_peak_hours: this.isPeakHours(departureTime),
       is_weekend: this.isWeekend(departureTime),
       is_long_weekend: isLongWeekend ? 1 : 0,
+      trip_hour: departureTime.getHours(),
     };
 
     logger.info('ML features extracted successfully', features);

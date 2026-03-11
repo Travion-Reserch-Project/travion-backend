@@ -51,10 +51,12 @@ export class MLService {
   private client: AxiosInstance;
   private baseUrl: string;
   private isEnabled: boolean;
+  private knowledgeSearchTimeoutMs: number;
 
   constructor() {
     this.baseUrl = process.env.ML_SERVICE_URL || 'http://localhost:8001';
     this.isEnabled = process.env.ML_SERVICE_ENABLED === 'true';
+    this.knowledgeSearchTimeoutMs = Number(process.env.ML_KNOWLEDGE_TIMEOUT_MS || 60000);
 
     this.client = axios.create({
       baseURL: this.baseUrl,
@@ -67,7 +69,9 @@ export class MLService {
     if (!this.isEnabled) {
       logger.warn('ML Service is disabled');
     } else {
-      logger.info(`ML Service initialized at ${this.baseUrl}`);
+      logger.info(
+        `ML Service initialized at ${this.baseUrl} (knowledge timeout: ${this.knowledgeSearchTimeoutMs}ms)`
+      );
     }
   }
 
@@ -307,6 +311,79 @@ export class MLService {
     } catch (error) {
       logger.error('Error getting traffic prediction:', error);
       return null;
+    }
+  }
+
+  /**
+   * Search knowledge base using RAG (Retrieval-Augmented Generation)
+   * @param query - User's question
+   * @param filters - Optional filters for category, location, language
+   * @returns RAG response with answer and source documents
+   */
+  async searchKnowledge(
+    query: string,
+    filters?: {
+      category?: string;
+      origin?: string;
+      destination?: string;
+      language?: string;
+      use_rag?: boolean;
+    }
+  ): Promise<{
+    results: Array<{
+      id: string;
+      content: string;
+      score: number;
+      metadata: any;
+      distance: number;
+    }>;
+    answer: string;
+    generated_by: string;
+    query_language: string;
+    total_results: number;
+    search_time_ms: number;
+    rag_time_ms: number;
+  }> {
+    if (!this.isEnabled) {
+      throw new Error('ML Service is not enabled');
+    }
+
+    try {
+      const requestBody: any = {
+        query,
+        use_rag: filters?.use_rag !== false,
+        language: filters?.language || 'en',
+      };
+
+      // Add filters if provided
+      if (filters?.category || filters?.origin || filters?.destination) {
+        requestBody.filters = {
+          category: filters.category,
+          origin: filters.origin,
+          destination: filters.destination,
+        };
+      }
+
+      logger.info('Calling ML knowledge search:', {
+        query,
+        filters: requestBody.filters,
+        language: requestBody.language,
+      });
+
+      const response = await this.client.post('/api/knowledge/search', requestBody, {
+        // Knowledge RAG calls can take longer on cold starts/model load.
+        timeout: this.knowledgeSearchTimeoutMs,
+      });
+
+      logger.info('ML knowledge search completed:', {
+        total_results: response.data.total_results,
+        search_time_ms: response.data.search_time_ms,
+      });
+
+      return response.data;
+    } catch (error) {
+      logger.error('Error calling ML knowledge search:', error);
+      throw error;
     }
   }
 

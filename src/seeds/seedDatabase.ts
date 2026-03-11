@@ -46,35 +46,69 @@ const loadDistrictsFromJSON = (): any[] => {
 // Load cities from JSON file
 const loadCitiesFromJSON = (): any[] => {
   try {
-    const filePath = path.join(__dirname, '../data/sri_lanka_cities_updated.json');
+    const filePath = path.join(
+      __dirname,
+      '../data/cities_complete_transport_analysis_updated.json'
+    );
     const data = fs.readFileSync(filePath, 'utf-8');
     const parsed = JSON.parse(data);
     return parsed.cities || [];
   } catch (error) {
-    logger.warn('Could not load cities from JSON, will use sample data:', error);
-    return [];
+    logger.warn(
+      'Could not load cities from complete transport analysis JSON, trying fallback:',
+      error
+    );
+
+    // Try old file as fallback
+    try {
+      const fallbackPath = path.join(__dirname, '../data/sri_lanka_cities_updated.json');
+      const data = fs.readFileSync(fallbackPath, 'utf-8');
+      const parsed = JSON.parse(data);
+      return parsed.cities || [];
+    } catch (fallbackError) {
+      logger.warn(
+        'Could not load cities from fallback file either, will use sample data:',
+        fallbackError
+      );
+      return [];
+    }
   }
 };
 
 // Format city data for MongoDB
 const formatCityData = (rawCity: any) => {
+  const cityName = rawCity.city_name || rawCity.name || 'Unknown';
+  const slug = cityName
+    .toString()
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, '')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-');
+
   return {
-    city_id: rawCity.id || rawCity.city_id,
-    district_id: rawCity.district_id || 1, // Default to 1 if not provided
+    city_id: rawCity.city_id || rawCity.id,
+    district_id: rawCity.district_id || 1,
+    city_name: cityName,
+    slug,
     name: {
-      en: rawCity.name || rawCity.city_name || 'Unknown',
-      si: rawCity.name_sinhala || rawCity.name || 'Unknown',
-      ta: rawCity.name_tamil || rawCity.name || 'Unknown',
+      en: cityName,
+      si: rawCity.city_name_si || rawCity.name_sinhala || cityName || '',
+      ta: rawCity.city_name_ta || rawCity.name_tamil || cityName || '',
     },
     location: {
       type: 'Point',
       coordinates: [rawCity.longitude || 0, rawCity.latitude || 0],
     },
     transport_access: {
-      has_railway: rawCity.has_railway || false,
-      has_bus: rawCity.has_bus || false,
-      has_any_transport: rawCity.has_railway || rawCity.has_bus || false,
-      has_both: (rawCity.has_railway && rawCity.has_bus) || false,
+      has_railway: rawCity.has_railway_access || rawCity.has_railway || false,
+      has_bus: rawCity.has_bus_access || rawCity.has_bus || false,
+      has_any_transport:
+        rawCity.has_any_transport || rawCity.has_railway_access || rawCity.has_bus_access || false,
+      has_both:
+        rawCity.has_both_transport ||
+        (rawCity.has_railway_access && rawCity.has_bus_access) ||
+        false,
     },
     transport_stats: {
       railway_stations_count: rawCity.railway_stations_count || 0,
@@ -82,6 +116,28 @@ const formatCityData = (rawCity: any) => {
       distance_to_nearest_railway_km: rawCity.distance_to_nearest_railway_km || undefined,
       distance_to_nearest_bus_km: rawCity.distance_to_nearest_bus_km || undefined,
     },
+    nearest_railway_station: rawCity.nearest_railway_station
+      ? {
+          station_id: String(rawCity.nearest_railway_station.station_id || ''),
+          station_name: rawCity.nearest_railway_station.station_name || '',
+          distance_km: rawCity.nearest_railway_station.distance_km,
+          latitude: rawCity.nearest_railway_station.latitude,
+          longitude: rawCity.nearest_railway_station.longitude,
+          location: rawCity.nearest_railway_station.location,
+        }
+      : undefined,
+    nearest_bus_station: rawCity.nearest_bus_station
+      ? {
+          station_id: String(rawCity.nearest_bus_station.station_id || ''),
+          station_name: rawCity.nearest_bus_station.station_name || '',
+          distance_km: rawCity.nearest_bus_station.distance_km,
+          latitude: rawCity.nearest_bus_station.latitude,
+          longitude: rawCity.nearest_bus_station.longitude,
+          operator: rawCity.nearest_bus_station.operator,
+        }
+      : undefined,
+    distance_to_nearest_railway_km: rawCity.distance_to_nearest_railway_km || undefined,
+    distance_to_nearest_bus_km: rawCity.distance_to_nearest_bus_km || undefined,
   };
 };
 
@@ -359,7 +415,7 @@ const seedTransportRoutes = async () => {
         route_id: 'RTE_CMB_KY_TRAIN_01',
         origin_city_id: colombo.city_id,
         destination_city_id: kandy.city_id,
-        transport_type: 'car' as const,
+        transport_type: 'train' as const,
         distance_km: 115,
         estimated_time_min: 225,
         base_fare_lkr: 850,
@@ -390,7 +446,7 @@ const seedTransportRoutes = async () => {
         route_id: 'RTE_CMB_GL_TRAIN_01',
         origin_city_id: colombo.city_id,
         destination_city_id: galle.city_id,
-        transport_type: 'car' as const,
+        transport_type: 'train' as const,
         distance_km: 115,
         estimated_time_min: 180,
         base_fare_lkr: 750,
@@ -489,6 +545,22 @@ const seedTransportRoutes = async () => {
           stops: ['Colombo Central', 'Kurunegala', 'Anuradhapura'],
           frequency: 'every 2 hours',
           schedule: '05:30-17:00',
+        },
+      });
+
+      routes.push({
+        route_id: 'RTE_CMB_ANU_TRAIN_01',
+        origin_city_id: colombo.city_id,
+        destination_city_id: anuradhapura.city_id,
+        transport_type: 'train' as const,
+        distance_km: 215,
+        estimated_time_min: 300,
+        base_fare_lkr: 1200,
+        has_transfer: false,
+        route_details: {
+          stops: ['Colombo Fort', 'Ragama', 'Kurunegala', 'Anuradhapura'],
+          frequency: 'multiple trains daily',
+          schedule: '05:45-20:30',
         },
       });
     }

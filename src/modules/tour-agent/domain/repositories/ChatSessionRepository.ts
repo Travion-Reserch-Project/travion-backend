@@ -4,12 +4,7 @@
  */
 
 import mongoose from 'mongoose';
-import {
-  ChatSession,
-  IChatSession,
-  IChatMessage,
-  ISessionContext,
-} from '../models/ChatSession';
+import { ChatSession, IChatSession, IChatMessage, ISessionContext } from '../models/ChatSession';
 
 export interface CreateSessionData {
   userId: string;
@@ -58,10 +53,7 @@ export class ChatSessionRepository {
   /**
    * Find session by session ID and user ID (ownership check)
    */
-  async findBySessionIdAndUser(
-    sessionId: string,
-    userId: string
-  ): Promise<IChatSession | null> {
+  async findBySessionIdAndUser(sessionId: string, userId: string): Promise<IChatSession | null> {
     return await ChatSession.findOne({
       sessionId,
       userId: new mongoose.Types.ObjectId(userId),
@@ -153,7 +145,7 @@ export class ChatSessionRepository {
     userId: string,
     messages: IChatMessage[]
   ): Promise<IChatSession | null> {
-    const timestampedMessages = messages.map(msg => ({
+    const timestampedMessages = messages.map((msg) => ({
       ...msg,
       timestamp: msg.timestamp || new Date(),
     }));
@@ -360,10 +352,7 @@ export class ChatSessionRepository {
   /**
    * Unlink session from trip
    */
-  async unlinkFromTrip(
-    sessionId: string,
-    userId: string
-  ): Promise<IChatSession | null> {
+  async unlinkFromTrip(sessionId: string, userId: string): Promise<IChatSession | null> {
     return await ChatSession.findOneAndUpdate(
       {
         sessionId,
@@ -413,10 +402,7 @@ export class ChatSessionRepository {
   /**
    * Get recent active sessions
    */
-  async getRecentSessions(
-    userId: string,
-    limit: number = 5
-  ): Promise<IChatSession[]> {
+  async getRecentSessions(userId: string, limit: number = 5): Promise<IChatSession[]> {
     return await ChatSession.find({
       userId: new mongoose.Types.ObjectId(userId),
       status: 'active',
@@ -429,18 +415,11 @@ export class ChatSessionRepository {
   /**
    * Search sessions by title or message content
    */
-  async search(
-    userId: string,
-    searchTerm: string,
-    limit: number = 10
-  ): Promise<IChatSession[]> {
+  async search(userId: string, searchTerm: string, limit: number = 10): Promise<IChatSession[]> {
     const regex = new RegExp(searchTerm, 'i');
     return await ChatSession.find({
       userId: new mongoose.Types.ObjectId(userId),
-      $or: [
-        { title: regex },
-        { 'messages.content': regex },
-      ],
+      $or: [{ title: regex }, { 'messages.content': regex }],
     })
       .select('sessionId title status messageCount lastActivity')
       .limit(limit)
@@ -470,10 +449,7 @@ export class ChatSessionRepository {
    * Find session by location name for a user
    * Used for location-specific chats where each location has its own session
    */
-  async findByLocationAndUser(
-    locationName: string,
-    userId: string
-  ): Promise<IChatSession | null> {
+  async findByLocationAndUser(locationName: string, userId: string): Promise<IChatSession | null> {
     return await ChatSession.findOne({
       userId: new mongoose.Types.ObjectId(userId),
       'context.locationName': locationName,
@@ -514,10 +490,7 @@ export class ChatSessionRepository {
    * Clear all messages from a session
    * Keeps the session but removes message history
    */
-  async clearMessages(
-    sessionId: string,
-    userId: string
-  ): Promise<IChatSession | null> {
+  async clearMessages(sessionId: string, userId: string): Promise<IChatSession | null> {
     return await ChatSession.findOneAndUpdate(
       {
         sessionId,

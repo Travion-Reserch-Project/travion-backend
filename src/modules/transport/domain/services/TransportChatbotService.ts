@@ -2,13 +2,16 @@ import { ConversationService } from './ConversationService';
 import { TransportService } from './TransportService';
 import { WeatherService } from './WeatherService';
 import { LLMService } from './LLMService';
+import { MLService } from './MLService';
 import { GoogleMapsService } from './GoogleMapsService';
 import { RouteContextBuilder, StaticRouteData, RouteContext } from './RouteContextBuilder';
 import { RankingService, RankedRoute } from './RankingService';
-import { RouteAvailabilityHelper } from '../utils/RouteAvailabilityHelper';
+import { IncidentService, IncidentResponse } from './IncidentService';
+import { MockTimetableService } from './MockTimetableService';
 import { logger } from '../../../../shared/config/logger';
 import { IMessage } from '../models/Message';
 import { IConversation } from '../models/Conversation';
+import { ICity } from '../models/City';
 
 // Extended StaticRouteData with additional fields used in route creation
 interface ExtendedStaticRouteData extends StaticRouteData {
@@ -44,7 +47,96 @@ export interface ChatResponse {
     }>;
     transport_recommendations?: unknown;
     weather_info?: unknown;
-    processing_time_ms: number;
+    road_incidents?: {
+      active_incidents: IncidentResponse[];
+      incident_count: number;
+      critical_incidents: number;
+      high_incidents: number;
+    };
+    station_data?: {
+      origin: {
+        requested_name: string;
+        matched_city_id?: number;
+        matched_city_name?: string;
+        matched_city_slug?: string;
+        matched_by?: 'direct' | 'nearest';
+        has_railway_access?: boolean;
+        has_bus_access?: boolean;
+        nearest_railway_station?: {
+          station_id?: string;
+          station_name?: string;
+          distance_km?: number;
+          latitude?: number;
+          longitude?: number;
+          location?: string;
+        };
+        nearest_bus_station?: {
+          station_id?: string;
+          station_name?: string;
+          distance_km?: number;
+          latitude?: number;
+          longitude?: number;
+          operator?: string;
+        };
+        distance_to_nearest_railway_km?: number;
+        distance_to_nearest_bus_km?: number;
+      };
+      destination: {
+        requested_name: string;
+        matched_city_id?: number;
+        matched_city_name?: string;
+        matched_city_slug?: string;
+        matched_by?: 'direct' | 'nearest';
+        has_railway_access?: boolean;
+        has_bus_access?: boolean;
+        nearest_railway_station?: {
+          station_id?: string;
+          station_name?: string;
+          distance_km?: number;
+          latitude?: number;
+          longitude?: number;
+          location?: string;
+        };
+        nearest_bus_station?: {
+          station_id?: string;
+          station_name?: string;
+          distance_km?: number;
+          latitude?: number;
+          longitude?: number;
+          operator?: string;
+        };
+        distance_to_nearest_railway_km?: number;
+        distance_to_nearest_bus_km?: number;
+      };
+    };
+    map_data?: {
+      origin: { lat: number; lng: number };
+      destination: { lat: number; lng: number };
+      routes: Array<{
+        route_id: string;
+        transport_type: string;
+        polyline?: string;
+        navigation_steps?: Array<{
+          instruction: string;
+          maneuver?: string;
+          duration: number;
+          distance: number;
+          travel_mode: string;
+          start_location?: { lat: number; lng: number };
+          end_location?: { lat: number; lng: number };
+        }>;
+        color: string;
+      }>;
+    };
+    processing_time_ms?: number;
+    // RAG-related metadata
+    rag_enabled?: boolean;
+    sources?: Array<{
+      source: string;
+      category: string;
+    }>;
+    confidence_score?: number;
+    search_time_ms?: number;
   };
   suggestions?: string[];
 }
@@ -52,6 +144,7 @@ export interface ChatResponse {
 export interface ExtractedIntent {
   intent:
     | 'route_query'
+    | 'time_query'
     | 'weather_query'
     | 'location_info'
     | 'general_question'
@@ -72,18 +165,24 @@ export class TransportChatbotService {
   private transportService: TransportService;
   private weatherService: WeatherService;
   private llmService: LLMService;
+  private mlService: MLService;
   private googleMapsService: GoogleMapsService;
   private routeContextBuilder: RouteContextBuilder;
   private rankingService: RankingService;
+  private incidentService: IncidentService;
+  private mockTimetableService: MockTimetableService;
 
   constructor() {
     this.conversationService = new ConversationService();
     this.transportService = new TransportService();
     this.weatherService = new WeatherService();
     this.llmService = new LLMService();
+    this.mlService = new MLService();
     this.googleMapsService = new GoogleMapsService();
     this.routeContextBuilder = new RouteContextBuilder();
     this.rankingService = new RankingService();
+    this.incidentService = new IncidentService();
+    this.mockTimetableService = new MockTimetableService();
   }
 
   /**
@@ -126,11 +225,58 @@ export class TransportChatbotService {
         confidence: intent.confidence,
       });
 
+      // Note: Knowledge-based queries should use the separate /ask-rag endpoint
+      // This transport chatbot now focuses only on route/transport queries
+
+      const isRouteIntent = intent.intent === 'route_query';
+      let hadPendingRouteContext = false;
+
+      if (isRouteIntent) {
+        // Check and merge with pending route query context only for route intents
+        let originRestoredFromContext = false;
+        let destinationRestoredFromContext = false;
+        const pendingQuery = this.conversationService.getPendingRouteQuery(activeConversation);
+
+        if (pendingQuery) {
+          hadPendingRouteContext = true;
+          logger.info('Found pending route query context:', pendingQuery);
+
+          if (!intent.entities.origin && pendingQuery.origin) {
+            intent.entities.origin = pendingQuery.origin.name;
+            originRestoredFromContext = true;
+            logger.info('Restored origin from context:', pendingQuery.origin.name);
+          }
+
+          if (!intent.entities.destination && pendingQuery.destination) {
+            intent.entities.destination = pendingQuery.destination.name;
+            destinationRestoredFromContext = true;
+            logger.info('Restored destination from context:', pendingQuery.destination.name);
+          }
+        }
+
+        // Save NEW route entities for follow-up route turns only
+        const hasNewOrigin = Boolean(intent.entities.origin && !originRestoredFromContext);
+        const hasNewDestination = Boolean(
+          intent.entities.destination && !destinationRestoredFromContext
+        );
+
+        if (hasNewOrigin || hasNewDestination) {
+          await this.saveToPendingContext(
+            activeConversation,
+            hasNewOrigin ? intent.entities.origin : undefined,
+            hasNewDestination ? intent.entities.destination : undefined
+          );
+        }
+      }
+
       // Process based on intent
       let response: ChatResponse;
       switch (intent.intent) {
         case 'route_query':
           response = await this.handleRouteQuery(activeConversation, request, intent);
+          break;
+        case 'time_query':
+          response = await this.handleTimeQuery(activeConversation, request, intent);
           break;
         case 'weather_query':
           response = await this.handleWeatherQuery(activeConversation, request, intent);
@@ -143,6 +289,18 @@ export class TransportChatbotService {
           break;
         default:
           response = await this.handleGeneralQuestion(activeConversation, request, recentMessages);
+      }
+
+      // Clear pending context after a successful full route answer
+      if (isRouteIntent && response.message_type === 'route_suggestion') {
+        logger.info('Route suggestion completed - clearing pending route context');
+        await this.conversationService.clearPendingRouteQuery(String(activeConversation._id));
+      }
+
+      // Clear stale route context when user asks a non-route question
+      if (!isRouteIntent && hadPendingRouteContext) {
+        logger.info('Non-route intent with stale route context - clearing pending route context');
+        await this.conversationService.clearPendingRouteQuery(String(activeConversation._id));
       }
 
       // Update processing time
@@ -166,6 +324,68 @@ export class TransportChatbotService {
     } catch (error) {
       logger.error('Error processing chat query:', error);
       throw error;
+    }
+  }
+
+  /**
+   * Save location mentions to pending context for cross-message queries
+   */
+  private async saveToPendingContext(
+    conversation: IConversation,
+    origin?: string,
+    destination?: string
+  ): Promise<void> {
+    try {
+      let savedOrigin:
+        | { name: string; city_id?: number; coordinates?: { lat: number; lng: number } }
+        | undefined = undefined;
+      let savedDestination:
+        | { name: string; city_id?: number; coordinates?: { lat: number; lng: number } }
+        | undefined = undefined;
+
+      // Resolve origin if provided
+      if (origin) {
+        const originCity = await this.transportService.findCity({ cityName: origin });
+        if (originCity) {
+          savedOrigin = {
+            name: origin,
+            city_id: originCity.city_id,
+            coordinates: {
+              lat: originCity.location.coordinates[1],
+              lng: originCity.location.coordinates[0],
+            },
+          };
+          logger.info('Saving origin to pending context:', { origin });
+        }
+      }
+
+      // Resolve destination if provided
+      if (destination) {
+        const destCity = await this.transportService.findCity({ cityName: destination });
+        if (destCity) {
+          savedDestination = {
+            name: destination,
+            city_id: destCity.city_id,
+            coordinates: {
+              lat: destCity.location.coordinates[1],
+              lng: destCity.location.coordinates[0],
+            },
+          };
+          logger.info('Saving destination to pending context:', { destination });
+        }
+      }
+
+      // Update pending context if we have anything to save
+      if (savedOrigin || savedDestination) {
+        await this.conversationService.updatePendingRouteQuery(
+          String(conversation._id),
+          savedOrigin,
+          savedDestination
+        );
+      }
+    } catch (error) {
+      logger.warn('Error saving to pending context:', error);
+      // Non-critical error, continue processing
     }
   }
 
@@ -196,7 +416,14 @@ CURRENT USER MESSAGE: ${message}
 
 TASK: Extract intent and entities from the ENTIRE conversation, not just the current message.
 - If origin or destination was mentioned earlier in the conversation, include it even if not in the current message
-- Intent types: route_query, weather_query, location_info, general_question, greeting, unknown
+- Intent types: route_query, time_query, weather_query, location_info, general_question, greeting, unknown
+
+INTENT DEFINITIONS:
+- route_query: User wants to find routes/transport options (e.g., "How to go from A to B", "Show me routes")
+- time_query: User asks about departure times, schedules, or timetables (e.g., "What time is the next bus", "When does the train leave", "Departure times")
+- weather_query: User asks about weather conditions
+- greeting: User says hi/hello
+- general_question: Questions about prices, speed, comfort, etc.
 
 IMPORTANT EXTRACTION RULES:
 1. Extract ONLY the city/location names, NOT the full phrase
@@ -205,19 +432,26 @@ IMPORTANT EXTRACTION RULES:
 4. Remove any surrounding words like "and", "I want to", "go to", etc.
 5. If the user previously said where they want to go, and now just mentions where they're from, combine them
 6. If the user previously said where they're from, and now just mentions where they want to go, combine them
+7. For time queries, check if origin/destination was mentioned in previous messages and include them
 
 EXAMPLES:
-- "I'm in Colombo and i want to go to embilipitiya" → origin: "Colombo", destination: "embilipitiya"
-- "How to get from Kandy to Nuwara Eliya?" → origin: "Kandy", destination: "Nuwara Eliya"
-- "I'm at Negombo" + (previous: "going to Galle") → origin: "Negombo", destination: "Galle"
+- "I'm in Colombo and i want to go to embilipitiya" → intent: "route_query", origin: "Colombo", destination: "embilipitiya"
+- "How to get from Kandy to Nuwara Eliya?" → intent: "route_query", origin: "Kandy", destination: "Nuwara Eliya"
+- "What is the next bus departure time" → intent: "time_query", origin: from_context, destination: from_context
+- "When does the train leave" → intent: "time_query"
+- "Show me the timetable" → intent: "time_query"
+- "What time is the next bus" → intent: "time_query"
+- "I'm at Negombo" + (previous: "going to Galle") → intent: "route_query", origin: "Negombo", destination: "Galle"
 
-Return JSON with: intent, origin, destination, transport_type`;
+Return JSON with: intent, origin, destination, transport_type, date, time`;
 
       const result = await this.llmService.extractFieldsFromQuery(enhancedPrompt, [
         'origin',
         'destination',
         'transport_type',
         'intent',
+        'date',
+        'time',
       ]);
 
       logger.info(
@@ -230,6 +464,8 @@ Return JSON with: intent, origin, destination, transport_type`;
           origin: result.extracted.origin,
           destination: result.extracted.destination,
           transport_type: result.extracted.transport_type as 'bus' | 'train' | 'any',
+          date: result.extracted.date,
+          time: result.extracted.time,
         },
         confidence: 0.8,
       };
@@ -245,6 +481,7 @@ Return JSON with: intent, origin, destination, transport_type`;
    */
   private extractIntentFallback(message: string, context: IMessage[]): ExtractedIntent {
     const lowerMessage = message.toLowerCase();
+    const temporalHints = this.extractTemporalHints(message);
 
     // Check for greetings
     if (/^(hi|hello|hey|greetings|good morning|good afternoon|good evening)/i.test(lowerMessage)) {
@@ -264,6 +501,42 @@ Return JSON with: intent, origin, destination, transport_type`;
           destination: locationMatch ? locationMatch[1].trim() : undefined,
         },
         confidence: 0.8,
+      };
+    }
+
+    // Check for time-related queries (next bus/train time) - MUST CHECK BEFORE route_query
+    const timeQueryPatterns = [
+      /\b(?:next|when|what\s+time|what\s+is\s+the\s+next)\b.*\b(?:bus|train|departure)\b/i,
+      /\b(?:bus|train)\b.*\b(?:time|departure|schedule|timetable)\b/i,
+      /\bdeparture\s+time/i,
+      /\bschedule|timetable|timings?\b/i,
+      /when\s+(?:does|do|is|are)\s+(?:the\s+)?(?:next\s+)?(?:bus|train)/i,
+    ];
+
+    if (timeQueryPatterns.some((pattern) => pattern.test(lowerMessage))) {
+      // Extract transport type
+      const transportType = /train/i.test(lowerMessage)
+        ? 'train'
+        : /bus/i.test(lowerMessage)
+          ? 'bus'
+          : undefined;
+
+      // Extract origin/destination if present
+      const fromMatch = lowerMessage.match(/from\s+([a-z\s]+?)(?:\s+(?:to|and|but)|\?|$|,)/i);
+      const toMatch = lowerMessage.match(
+        /(?:to|going\s+to)\s+([a-z\s]+?)(?:\?|$|,|\s+from|\s+and|\s+but)/i
+      );
+
+      return {
+        intent: 'time_query',
+        entities: {
+          transport_type: transportType,
+          origin: fromMatch ? fromMatch[1].trim() : undefined,
+          destination: toMatch ? toMatch[1].trim() : undefined,
+          date: temporalHints.date,
+          time: temporalHints.time,
+        },
+        confidence: 0.85,
       };
     }
 
@@ -316,6 +589,8 @@ Return JSON with: intent, origin, destination, transport_type`;
         entities: {
           origin,
           destination,
+          date: temporalHints.date,
+          time: temporalHints.time,
         },
         confidence: origin && destination ? 0.85 : 0.6,
       };
@@ -402,23 +677,6 @@ Return JSON with: intent, origin, destination, transport_type`;
     }
 
     return { origin, destination };
-  }
-
-  /**
-   * Calculate distance between two coordinates using Haversine formula
-   */
-  private calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
-    const R = 6371; // Radius of Earth in kilometers
-    const dLat = ((lat2 - lat1) * Math.PI) / 180;
-    const dLon = ((lon2 - lon1) * Math.PI) / 180;
-    const a =
-      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-      Math.cos((lat1 * Math.PI) / 180) *
-        Math.cos((lat2 * Math.PI) / 180) *
-        Math.sin(dLon / 2) *
-        Math.sin(dLon / 2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    return R * c;
   }
 
   /**
@@ -545,8 +803,36 @@ Return JSON with: intent, origin, destination, transport_type`;
       }
 
       try {
-        // Fetch routes from both Google Maps AND database in parallel
-        const [transitRoutes, drivingRoutes, dbTrainRoutes, dbBusRoutes] = await Promise.all([
+        // If cities not found in DB, find nearest cities by coordinates for train lookup
+        let originCityForTrains = originCity;
+        let destCityForTrains = destCity;
+
+        if (!originCityForTrains && originCoords) {
+          logger.info(`Origin not in DB, finding nearest city for train lookup`);
+          originCityForTrains = await this.transportService.findCity({
+            coordinates: originCoords,
+          });
+          if (originCityForTrains) {
+            logger.info(
+              `Found nearest city for origin: ${originCityForTrains.name} (${originCityForTrains.city_id})`
+            );
+          }
+        }
+
+        if (!destCityForTrains && destCoords) {
+          logger.info(`Destination not in DB, finding nearest city for train lookup`);
+          destCityForTrains = await this.transportService.findCity({
+            coordinates: destCoords,
+          });
+          if (destCityForTrains) {
+            logger.info(
+              `Found nearest city for destination: ${destCityForTrains.name} (${destCityForTrains.city_id})`
+            );
+          }
+        }
+
+        // Fetch routes only from Google Maps
+        const [transitRoutes, drivingRoutes] = await Promise.all([
           // Google Maps routes (for real-time directions)
           this.googleMapsService
             .getDirections(originCoords, destCoords, 'transit', true)
@@ -560,48 +846,10 @@ Return JSON with: intent, origin, destination, transport_type`;
               logger.warn(`Driving route fetch failed: ${err.message}`);
               return [];
             }),
-          // Database routes (if cities are found)
-          originCity && destCity
-            ? this.transportService
-                .findRoutes(originCity.city_id, destCity.city_id, 'train')
-                .catch((err) => {
-                  logger.warn(`Database train route fetch failed: ${err.message}`);
-                  return [];
-                })
-            : Promise.resolve([]),
-          originCity && destCity
-            ? this.transportService
-                .findRoutes(originCity.city_id, destCity.city_id, 'bus')
-                .catch((err) => {
-                  logger.warn(`Database bus route fetch failed: ${err.message}`);
-                  return [];
-                })
-            : Promise.resolve([]),
         ]);
 
         logger.info(
-          `Fetched ${transitRoutes.length} transit routes, ${drivingRoutes.length} driving routes, ${dbTrainRoutes.length} DB train routes, ${dbBusRoutes.length} DB bus routes`
-        );
-
-        // Filter database routes by availability and operational status
-        const currentTime = new Date();
-        const availableTrainRoutes = RouteAvailabilityHelper.sortByAvailability(
-          RouteAvailabilityHelper.filterOperationalRoutes(
-            RouteAvailabilityHelper.filterAvailableRoutes(dbTrainRoutes, currentTime),
-            currentTime
-          ),
-          currentTime
-        );
-        const availableBusRoutes = RouteAvailabilityHelper.sortByAvailability(
-          RouteAvailabilityHelper.filterOperationalRoutes(
-            RouteAvailabilityHelper.filterAvailableRoutes(dbBusRoutes, currentTime),
-            currentTime
-          ),
-          currentTime
-        );
-
-        logger.info(
-          `After availability filter: ${availableTrainRoutes.length} train routes, ${availableBusRoutes.length} bus routes available`
+          `Fetched ${transitRoutes.length} transit routes, ${drivingRoutes.length} driving routes from Google Maps`
         );
 
         // Log first route details for debugging
@@ -618,132 +866,128 @@ Return JSON with: intent, origin, destination, transport_type`;
 
         // Create synthetic route objects from Google Maps responses
         const allRoutes: ExtendedStaticRouteData[] = [];
+        const accessOriginCity = originCity || originCityForTrains;
+        const accessDestCity = destCity || destCityForTrains;
+        const hasBusOnBothEnds = Boolean(
+          accessOriginCity?.transport_access?.has_bus && accessDestCity?.transport_access?.has_bus
+        );
+        const hasRailOnBothEnds =
+          this.hasReliableRailwayAccess(accessOriginCity) &&
+          this.hasReliableRailwayAccess(accessDestCity);
 
-        // Add transit routes (bus/train)
-        transitRoutes.forEach((route, idx) => {
-          allRoutes.push({
-            route_id: `GMAPS_TRANSIT_${idx}`,
-            origin_city_id: originCity?.city_id || 'geocoded',
-            destination_city_id: destCity?.city_id || 'geocoded',
-            transport_type: 'bus',
-            distance_km: route.distance / 1000,
-            estimated_duration_min: Math.round(route.duration / 60),
-            base_fare_lkr: Math.round((route.distance / 1000) * 50), // Estimate: 50 LKR per km
-            has_transfer: route.steps?.length > 3,
-            scenic_score: 0.6,
-            comfort_score: 0.7,
-            operator_name: 'Public Transit',
-            navigation_steps: route.steps, // Include turn-by-turn navigation
+        // Add Google transit-derived bus/train only when both cities support that mode
+        if (transitRoutes.length > 0) {
+          const sortedTransit = [...transitRoutes].sort((a, b) => a.duration - b.duration);
+          const bestTransit = sortedTransit[0];
+          const transitDistanceKm = bestTransit.distance / 1000;
+          const transitDurationMin = Math.round(bestTransit.duration / 60);
+
+          if (hasBusOnBothEnds) {
+            allRoutes.push({
+              route_id: 'GMAPS_TRANSIT_BUS',
+              origin_city_id: accessOriginCity?.city_id || 'geocoded',
+              destination_city_id: accessDestCity?.city_id || 'geocoded',
+              transport_type: 'bus',
+              distance_km: transitDistanceKm,
+              estimated_duration_min: transitDurationMin,
+              base_fare_lkr: Math.round(transitDistanceKm * 50),
+              has_transfer: bestTransit.steps?.length > 3,
+              scenic_score: 0.6,
+              comfort_score: 0.7,
+              operator_name: 'Public Transit',
+              polyline: bestTransit.polyline,
+              navigation_steps: bestTransit.steps,
+            });
+          }
+
+          if (hasRailOnBothEnds) {
+            allRoutes.push({
+              route_id: 'GMAPS_TRANSIT_TRAIN',
+              origin_city_id: accessOriginCity?.city_id || 'geocoded',
+              destination_city_id: accessDestCity?.city_id || 'geocoded',
+              transport_type: 'train',
+              distance_km: transitDistanceKm,
+              estimated_duration_min: Math.round(transitDurationMin * 1.05),
+              base_fare_lkr: Math.round(transitDistanceKm * 40),
+              has_transfer: bestTransit.steps?.length > 2,
+              scenic_score: 0.8,
+              comfort_score: 0.75,
+              operator_name: 'Sri Lanka Railways (maps transit)',
+              polyline: bestTransit.polyline,
+              navigation_steps: bestTransit.steps,
+            });
+          }
+
+          logger.info('Added Google transit public transport options by city access', {
+            hasBusOnBothEnds,
+            hasRailOnBothEnds,
+            transitDistanceKm,
+            transitDurationMin,
           });
-        });
+        }
 
-        // Add driving routes (car/taxi)
+        // Always include driving options as optional alternatives
         drivingRoutes.forEach((route, idx) => {
           allRoutes.push({
             route_id: `GMAPS_DRIVING_${idx}`,
-            origin_city_id: originCity?.city_id || 'geocoded',
-            destination_city_id: destCity?.city_id || 'geocoded',
+            origin_city_id: accessOriginCity?.city_id || 'geocoded',
+            destination_city_id: accessDestCity?.city_id || 'geocoded',
             transport_type: 'car',
             distance_km: route.distance / 1000,
             estimated_duration_min: Math.round(route.duration / 60),
-            base_fare_lkr: Math.round((route.distance / 1000) * 150), // Estimate: 150 LKR per km
+            base_fare_lkr: Math.round((route.distance / 1000) * 150),
             has_transfer: false,
             scenic_score: 0.7,
             comfort_score: 0.9,
-            operator_name: 'Private Car/Taxi',
-            navigation_steps: route.steps, // Include turn-by-turn navigation
+            operator_name: 'PickMe/Uber',
+            polyline: route.polyline,
+            navigation_steps: route.steps,
           });
         });
 
-        // Add database train routes (actual Sri Lankan train data - filtered by availability)
-        availableTrainRoutes.forEach((route) => {
-          allRoutes.push({
-            route_id: route.route_id,
-            origin_city_id: route.origin_city_id,
-            destination_city_id: route.destination_city_id,
-            transport_type: 'train',
-            distance_km: route.distance_km,
-            estimated_duration_min: route.estimated_time_min,
-            base_fare_lkr: route.base_fare_lkr || Math.round(route.distance_km * 40), // Estimate if not provided
-            has_transfer: route.has_transfer,
-            scenic_score: 0.8, // Trains in Sri Lanka are often scenic
-            comfort_score: 0.75,
-            operator_name: 'Sri Lanka Railways',
-          });
-        });
+        // If transit is unavailable, synthesize bus/train from city access + driving baseline
+        if (transitRoutes.length === 0 && drivingRoutes.length > 0) {
+          const baseDriving = drivingRoutes[0];
+          const baseDistanceKm = baseDriving.distance / 1000;
+          const baseDrivingMin = Math.round(baseDriving.duration / 60);
 
-        // Add database bus routes (filtered by availability - if any additional routes not covered by Google Maps)
-        availableBusRoutes.forEach((route) => {
-          // Only add if not a duplicate of Google Maps transit
-          const isDuplicate = allRoutes.some(
-            (r) =>
-              r.transport_type === 'bus' && Math.abs((r.distance_km || 0) - route.distance_km) < 10
-          );
-          if (!isDuplicate) {
+          if (hasBusOnBothEnds) {
             allRoutes.push({
-              route_id: route.route_id,
-              origin_city_id: route.origin_city_id,
-              destination_city_id: route.destination_city_id,
+              route_id: 'CITY_GMAPS_BUS_FALLBACK',
+              origin_city_id: accessOriginCity?.city_id || 'geocoded',
+              destination_city_id: accessDestCity?.city_id || 'geocoded',
               transport_type: 'bus',
-              distance_km: route.distance_km,
-              estimated_duration_min: route.estimated_time_min,
-              base_fare_lkr: route.base_fare_lkr || Math.round(route.distance_km * 50),
-              has_transfer: route.has_transfer,
+              distance_km: baseDistanceKm,
+              estimated_duration_min: Math.round(baseDrivingMin * 1.35),
+              base_fare_lkr: Math.round(baseDistanceKm * 50),
+              has_transfer: baseDistanceKm > 140,
               scenic_score: 0.6,
-              comfort_score: 0.7,
-              operator_name: route.route_details?.frequency || 'Public Bus',
+              comfort_score: 0.65,
+              operator_name: 'Public Bus (city+maps estimate)',
             });
           }
-        });
 
-        if (allRoutes.length === 0) {
-          // Fallback: Create basic routes using direct distance calculation
-          logger.warn(
-            'No routes from Google Maps, creating fallback routes based on direct distance'
-          );
+          if (hasRailOnBothEnds) {
+            allRoutes.push({
+              route_id: 'CITY_GMAPS_TRAIN_FALLBACK',
+              origin_city_id: accessOriginCity?.city_id || 'geocoded',
+              destination_city_id: accessDestCity?.city_id || 'geocoded',
+              transport_type: 'train',
+              distance_km: baseDistanceKm,
+              estimated_duration_min: Math.round(baseDrivingMin * 1.2),
+              base_fare_lkr: Math.round(baseDistanceKm * 40),
+              has_transfer: baseDistanceKm > 220,
+              scenic_score: 0.8,
+              comfort_score: 0.75,
+              operator_name: 'Sri Lanka Railways (city+maps estimate)',
+            });
+          }
 
-          const directDistance = this.calculateDistance(
-            originCoords.lat,
-            originCoords.lng,
-            destCoords.lat,
-            destCoords.lng
-          );
-
-          const estimatedDuration = Math.round(directDistance * 1.5); // Rough estimate: ~40 km/h average
-
-          // Create fallback routes
-          allRoutes.push(
-            {
-              route_id: 'FALLBACK_BUS',
-              origin_city_id: originCity?.city_id || 'geocoded',
-              destination_city_id: destCity?.city_id || 'geocoded',
-              transport_type: 'bus',
-              distance_km: directDistance,
-              estimated_duration_min: estimatedDuration,
-              base_fare_lkr: Math.round(directDistance * 50),
-              has_transfer: directDistance > 100,
-              scenic_score: 0.6,
-              comfort_score: 0.7,
-              operator_name: 'Public Transport',
-            },
-            {
-              route_id: 'FALLBACK_CAR',
-              origin_city_id: originCity?.city_id || 'geocoded',
-              destination_city_id: destCity?.city_id || 'geocoded',
-              transport_type: 'car',
-              distance_km: directDistance,
-              estimated_duration_min: Math.round(estimatedDuration * 0.8), // Cars slightly faster
-              base_fare_lkr: Math.round(directDistance * 150),
-              has_transfer: false,
-              scenic_score: 0.7,
-              comfort_score: 0.9,
-              operator_name: 'Private Car/Taxi',
-            }
-          );
-
-          logger.info(
-            `Created ${allRoutes.length} fallback routes (${directDistance.toFixed(1)} km)`
-          );
+          logger.info('Added City+Google fallback public transport options', {
+            hasBusOnBothEnds,
+            hasRailOnBothEnds,
+            distanceKm: baseDistanceKm,
+          });
         }
 
         if (allRoutes.length === 0) {
@@ -782,44 +1026,81 @@ Return JSON with: intent, origin, destination, transport_type`;
 
         // Infer user preferences from message and rank routes
         const userWeights = this.rankingService.guessUserWeights(request.message);
+        const departureTime = this.resolveDepartureTime(
+          intent.entities.date,
+          intent.entities.time,
+          request.message
+        );
 
         // Pass coordinates to enable ML ranking
         const rankedRoutes = await this.rankingService.rankRoutes(validContexts, userWeights, {
           origin: originCoords,
           destination: destCoords,
-          departureTime: new Date(), // Use current time or parse from request
+          departureTime,
         });
 
-        // Generate natural language explanation from top routes (fallback if LLM unavailable)
+        // Fetch incidents affecting this route
+        let routeIncidents: IncidentResponse[] = [];
+        try {
+          routeIncidents = await this.incidentService.getIncidentsForRoute(
+            originCoords.lat,
+            originCoords.lng,
+            destCoords.lat,
+            destCoords.lng,
+            15 // 15km corridor radius
+          );
+        } catch (error) {
+          logger.warn('Error fetching route incidents:', error);
+          // Continue without incidents
+        }
+
+        // Select diverse routes for display (ensure different transport types are shown)
+        const displayRoutes = this.selectDiverseRoutes(rankedRoutes, 3);
+
+        // Generate explanation using selected transport methods (not all route variants)
         let explanation: string;
         try {
           explanation = await this.llmService.generateRouteExplanation(
-            rankedRoutes,
+            displayRoutes,
             origin!,
             destination!
           );
         } catch (error) {
           logger.warn('Error generating explanation:', (error as Error).message);
           // Fallback explanation
-          explanation = `I found ${rankedRoutes.length} route options from ${origin} to ${destination}.`;
+          explanation = `I found ${displayRoutes.length} transport methods from ${origin} to ${destination}.`;
         }
 
-        // Format detailed response with top 3 routes
-        const detailedResponse = this.formatIntelligentRouteResponse(rankedRoutes, explanation);
+        // Format detailed response with top 3 routes and incidents
+        const detailedResponse = this.formatIntelligentRouteResponse(
+          displayRoutes,
+          explanation,
+          departureTime,
+          routeIncidents
+        );
 
-        // Update conversation context
-        await this.conversationService.updateContext(String(conversation._id), {
-          current_location: {
-            city_id: originCity?.city_id,
-            city_name: origin,
-            coordinates: [originCoords.lng, originCoords.lat],
-          },
-          destination: {
-            city_id: destCity?.city_id,
-            city_name: destination,
-            coordinates: [destCoords.lng, destCoords.lat],
-          },
-        });
+        // Update conversation context (only if both cities were found in database)
+        // This ensures time queries can reliably use stored city names
+        if (originCity && destCity) {
+          await this.conversationService.updateContext(String(conversation._id), {
+            current_location: {
+              city_id: originCity.city_id,
+              city_name: originCity.name?.en || originCity.city_name || origin,
+              coordinates: [originCoords.lng, originCoords.lat],
+            },
+            destination: {
+              city_id: destCity.city_id,
+              city_name: destCity.name?.en || destCity.city_name || destination,
+              coordinates: [destCoords.lng, destCoords.lat],
+            },
+          });
+          logger.info('Updated conversation context with valid cities:', {
+            origin: originCity.name?.en || originCity.city_name,
+            destination: destCity.name?.en || destCity.city_name,
+          });
+        } else {
+          logger.info('Skipping context update - using geocoded locations without DB cities');
+        }
 
         return {
           conversation_id: String(conversation._id),
@@ -841,7 +1122,42 @@ Return JSON with: intent, origin, destination, transport_type`;
             ],
             transport_recommendations: {
               ranking_weights: userWeights,
-              ranked_routes: rankedRoutes.slice(0, 3),
+              ranked_routes: displayRoutes.map((route) => ({
+                route_id: route.route_id,
+                transport_type: route.transport_type,
+                score: route.score,
+                ml_confidence: route.ml_confidence,
+                recommendation_reason: route.recommendation_reason,
+              })),
+            },
+            road_incidents: {
+              active_incidents: routeIncidents,
+              incident_count: routeIncidents.length,
+              critical_incidents: routeIncidents.filter((i) => i.severity === 'critical').length,
+              high_incidents: routeIncidents.filter((i) => i.severity === 'high').length,
+            },
+            station_data: {
+              origin: this.buildCityStationData(
+                origin!,
+                originCity || originCityForTrains,
+                originCity ? 'direct' : 'nearest'
+              ),
+              destination: this.buildCityStationData(
+                destination!,
+                destCity || destCityForTrains,
+                destCity ? 'direct' : 'nearest'
+              ),
+            },
+            map_data: {
+              origin: originCoords,
+              destination: destCoords,
+              routes: displayRoutes.map((route) => ({
+                route_id: route.route_id,
+                transport_type: route.transport_type,
+                polyline: route.static.polyline,
+                navigation_steps: route.static.navigation_steps,
+                color: this.getRouteColor(route.transport_type),
+              })),
             },
             processing_time_ms: 0,
           },
@@ -872,22 +1188,164 @@ Return JSON with: intent, origin, destination, transport_type`;
   }
 
   /**
+   * Select diverse routes for display, ensuring different transport types are represented
+   * @param rankedRoutes All ranked routes
+   * @param count Number of routes to select (default 3)
+   * @returns Array of diverse routes prioritizing different transport types
+   */
+  private selectDiverseRoutes(rankedRoutes: RankedRoute[], count: number = 3): RankedRoute[] {
+    if (rankedRoutes.length <= count) {
+      return rankedRoutes;
+    }
+
+    const selected: RankedRoute[] = [];
+    const seenTypes = new Set<string>();
+
+    // First pass: Select top route of each transport type
+    for (const route of rankedRoutes) {
+      if (!seenTypes.has(route.transport_type)) {
+        selected.push(route);
+        seenTypes.add(route.transport_type);
+
+        if (selected.length === count) {
+          logger.info('Selected diverse routes:', {
+            routes: selected.map((r) => `${r.transport_type} (score: ${r.score.toFixed(2)})`),
+          });
+          return selected;
+        }
+      }
+    }
+
+    // Second pass: Fill remaining slots with highest-ranked routes
+    for (const route of rankedRoutes) {
+      if (!selected.includes(route)) {
+        selected.push(route);
+
+        if (selected.length === count) {
+          break;
+        }
+      }
+    }
+
+    logger.info('Selected diverse routes:', {
+      routes: selected.map((r) => `${r.transport_type} (score: ${r.score.toFixed(2)})`),
+    });
+
+    return selected;
+  }
+
+  /**
    * Format intelligent route response with ranked options
    */
-  private formatIntelligentRouteResponse(rankedRoutes: RankedRoute[], explanation: string): string {
+  private formatIntelligentRouteResponse(
+    rankedRoutes: RankedRoute[],
+    explanation: string,
+    departureTime: Date,
+    incidents?: IncidentResponse[]
+  ): string {
     let response = `${explanation}\n\n`;
 
-    // Show top 3 routes with detailed metrics
+    const topRoute = rankedRoutes[0];
+    const isNightWindow = this.isNightTravelWindow(departureTime);
+    const shortTrip = topRoute ? topRoute.dynamic.distance_km < 25 : false;
+
+    // Add incident warning if there are any
+    if (incidents && incidents.length > 0) {
+      const criticalIncidents = incidents.filter((i) => i.severity === 'critical');
+      const highIncidents = incidents.filter((i) => i.severity === 'high');
+      const mediumIncidents = incidents.filter((i) => i.severity === 'medium');
+
+      if (criticalIncidents.length > 0) {
+        response += '🚨 **CRITICAL INCIDENTS ON ROUTE:**\n';
+        criticalIncidents.forEach((incident) => {
+          const distanceInfo = incident.distance_from_user_km
+            ? ` (${incident.distance_from_user_km.toFixed(1)} km from origin)`
+            : '';
+          response += `• ${incident.title}${distanceInfo}\n`;
+          response += `  ${incident.description.substring(0, 80)}...\n`;
+          if (incident.estimated_delay_min) {
+            response += `  ⏱️ Expected delay: ${incident.estimated_delay_min} minutes\n`;
+          }
+        });
+        response += '\n';
+      }
+
+      if (highIncidents.length > 0) {
+        response += '⚠️ **Important Road Conditions:**\n';
+        highIncidents.forEach((incident) => {
+          const distanceInfo = incident.distance_from_user_km
+            ? ` - ${incident.distance_from_user_km.toFixed(1)} km from origin`
+            : '';
+          response += `• ${incident.title} (${incident.incident_type})${distanceInfo}\n`;
+        });
+        response += '\n';
+      }
+
+      if (mediumIncidents.length > 0) {
+        response += 'ℹ️ **Reported Road Issues:**\n';
+        mediumIncidents.slice(0, 3).forEach((incident) => {
+          const distanceInfo = incident.distance_from_user_km
+            ? ` - ${incident.distance_from_user_km.toFixed(1)} km from origin`
+            : '';
+          response += `• ${incident.title}${distanceInfo}\n`;
+        });
+        if (mediumIncidents.length > 3) {
+          response += `• ...and ${mediumIncidents.length - 3} more\n`;
+        }
+        response += '\n';
+      }
+
+      const lowIncidents =
+        incidents.length - criticalIncidents.length - highIncidents.length - mediumIncidents.length;
+      if (lowIncidents > 0) {
+        response += `💡 ${lowIncidents} minor incident(s) also reported in this area.\n\n`;
+      }
+    }
+
+    response += '**Route Summary:**\n';
+    if (topRoute) {
+      response += `• Departure time considered: ${departureTime.toLocaleTimeString('en-LK', {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: true,
+      })} (${isNightWindow ? 'night window' : 'day window'})\n`;
+      response += `• Estimated trip distance: ${topRoute.dynamic.distance_km.toFixed(1)} km\n`;
+      if (isNightWindow && shortTrip) {
+        response +=
+          '• Reasoning: For trips under 25 km during 8:00 PM–5:00 AM, ride-hailing (PickMe/Uber) is prioritized because public transport availability is less reliable.\n';
+      } else {
+        response +=
+          '• Reasoning: Ranked by travel time, fare, comfort, safety, weather, traffic, incidents, and ML confidence.\n';
+      }
+    }
+
+    response += '\n';
+
+    // Show all provided routes with detailed metrics (already filtered for diversity)
     if (rankedRoutes.length > 0) {
       response += '**Detailed Route Options:**\n\n';
 
-      rankedRoutes.slice(0, 3).forEach((route, index) => {
+      rankedRoutes.forEach((route, index) => {
         const medalEmoji = index === 0 ? '🥇' : index === 1 ? '🥈' : '🥉';
         response += `${medalEmoji} **Option ${index + 1}: ${route.transport_type.toUpperCase()}**\n`;
+        response += `   Provider: ${route.static.operator_name}\n`;
         response += `   Score: ${(route.score * 100).toFixed(0)}/100\n`;
         response += `   ⏱ Duration: ${route.dynamic.duration_min} min\n`;
         response += `   📏 Distance: ${route.dynamic.distance_km.toFixed(1)} km\n`;
-        response += `   💰 Fare: LKR ${route.static.base_fare_lkr.toFixed(0)}\n`;
+
+        // Add next departure time for bus/train
+        if (route.transport_type === 'bus' || route.transport_type === 'train') {
+          const nextDeparture = this.mockTimetableService.getNextDeparture(
+            route.dynamic.distance_km,
+            route.transport_type,
+            departureTime
+          );
+          if (nextDeparture) {
+            response += `   🕐 Next Departure: ${this.mockTimetableService.formatDepartureForDisplay(nextDeparture)}\n`;
+          }
+        } else if (route.transport_type === 'car') {
+          response += `   🕐 Available: On demand (book anytime)\n`;
+        }
 
         // Show key metrics
         const metrics = [];
@@ -898,6 +1356,10 @@ Return JSON with: intent, origin, destination, transport_type`;
 
         if (metrics.length > 0) {
           response += `   ${metrics.join(' • ')}\n`;
+        }
+
+        if (route.recommendation_reason) {
+          response += `   🧠 Why this rank: ${route.recommendation_reason}\n`;
         }
 
         // Show turn-by-turn navigation for the top route only
@@ -927,6 +1389,290 @@ Return JSON with: intent, origin, destination, transport_type`;
     return response;
   }
 
+  private buildCityStationData(
+    requestedName: string,
+    city: ICity | null | undefined,
+    matchedBy: 'direct' | 'nearest'
+  ) {
+    if (!city) {
+      return {
+        requested_name: requestedName,
+      };
+    }
+
+    return {
+      requested_name: requestedName,
+      matched_city_id: city.city_id,
+      matched_city_name: city.name?.en || city.city_name,
+      matched_city_slug: city.slug,
+      matched_by: matchedBy,
+      has_railway_access: city.transport_access?.has_railway,
+      has_bus_access: city.transport_access?.has_bus,
+      nearest_railway_station: city.nearest_railway_station
+        ? {
+            station_id: city.nearest_railway_station.station_id,
+            station_name: city.nearest_railway_station.station_name,
+            distance_km: city.nearest_railway_station.distance_km,
+            latitude: city.nearest_railway_station.latitude,
+            longitude: city.nearest_railway_station.longitude,
+            location: city.nearest_railway_station.location,
+          }
+        : undefined,
+      nearest_bus_station: city.nearest_bus_station
+        ? {
+            station_id: city.nearest_bus_station.station_id,
+            station_name: city.nearest_bus_station.station_name,
+            distance_km: city.nearest_bus_station.distance_km,
+            latitude: city.nearest_bus_station.latitude,
+            longitude: city.nearest_bus_station.longitude,
+            operator: city.nearest_bus_station.operator,
+          }
+        : undefined,
+      distance_to_nearest_railway_km:
+        city.distance_to_nearest_railway_km ?? city.transport_stats?.distance_to_nearest_railway_km,
+      distance_to_nearest_bus_km:
+        city.distance_to_nearest_bus_km ?? city.transport_stats?.distance_to_nearest_bus_km,
+    };
+  }
+
+  private hasReliableRailwayAccess(city: ICity | null | undefined): boolean {
+    if (!city?.transport_access?.has_railway) {
+      return false;
+    }
+
+    const station = city.nearest_railway_station;
+    if (!station) {
+      return false;
+    }
+
+    const stationName = (station.station_name || '').trim();
+    if (!stationName) {
+      return false;
+    }
+
+    const stationId = (station.station_id || '').toString().trim().toLowerCase();
+    const hasKnownStationId = stationId.length > 0 && stationId !== 'unknown';
+    const hasLocationHint = Boolean((station.location || '').trim());
+
+    // Keep railway eligibility only for reasonably trustworthy station metadata.
+    return hasKnownStationId || hasLocationHint;
+  }
+
+  private resolveDepartureTime(
+    extractedDate?: string,
+    extractedTime?: string,
+    message?: string
+  ): Date {
+    const now = new Date();
+    const baseDate =
+      this.parseDateFromText(extractedDate) || this.parseDateFromText(message) || now;
+
+    const timeSource = extractedTime || message;
+    if (!timeSource) {
+      return baseDate;
+    }
+
+    // 12-hour format: 10am, 10:30 pm
+    const ampmMatch = timeSource.match(/\b(1[0-2]|0?[1-9])(?::([0-5][0-9]))?\s*(am|pm)\b/i);
+    if (ampmMatch) {
+      let hour = Number(ampmMatch[1]);
+      const minute = Number(ampmMatch[2] || '0');
+      const period = ampmMatch[3].toLowerCase();
+
+      if (period === 'pm' && hour !== 12) {
+        hour += 12;
+      }
+      if (period === 'am' && hour === 12) {
+        hour = 0;
+      }
+
+      const parsed = new Date(baseDate);
+      parsed.setHours(hour, minute, 0, 0);
+      return parsed;
+    }
+
+    // 24-hour format: 14:30
+    const hhmmMatch = timeSource.match(/\b([01]?\d|2[0-3]):([0-5]\d)\b/);
+    if (hhmmMatch) {
+      const parsed = new Date(baseDate);
+      parsed.setHours(Number(hhmmMatch[1]), Number(hhmmMatch[2]), 0, 0);
+      return parsed;
+    }
+
+    return baseDate;
+  }
+
+  private extractTemporalHints(message: string): { date?: string; time?: string } {
+    const date = this.extractDatePhrase(message);
+    const time = this.extractTimePhrase(message);
+    return { date, time };
+  }
+
+  private extractTimePhrase(text: string): string | undefined {
+    const ampmMatch = text.match(/\b(1[0-2]|0?[1-9])(?::([0-5][0-9]))?\s*(am|pm)\b/i);
+    if (ampmMatch) {
+      return ampmMatch[0];
+    }
+
+    const hhmmMatch = text.match(/\b([01]?\d|2[0-3]):([0-5]\d)\b/);
+    if (hhmmMatch) {
+      return hhmmMatch[0];
+    }
+
+    return undefined;
+  }
+
+  private extractDatePhrase(text: string): string | undefined {
+    const explicitDate = text.match(
+      /\b(\d{1,2}(?:st|nd|rd|th)?\s+(?:jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)(?:\s+\d{4})?)\b/i
+    );
+    if (explicitDate) {
+      return explicitDate[1];
+    }
+
+    const monthFirstDate = text.match(
+      /\b((?:jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)\s+\d{1,2}(?:st|nd|rd|th)?(?:,?\s*\d{4})?)\b/i
+    );
+    if (monthFirstDate) {
+      return monthFirstDate[1];
+    }
+
+    const isoDate = text.match(/\b\d{4}-\d{2}-\d{2}\b/);
+    if (isoDate) {
+      return isoDate[0];
+    }
+
+    return undefined;
+  }
+
+  private parseDateFromText(text?: string): Date | null {
+    if (!text) {
+      return null;
+    }
+
+    const cleaned = text
+      .toLowerCase()
+      .replace(/\b(on|at|by|for)\b/g, ' ')
+      .replace(/(\d)(st|nd|rd|th)\b/g, '$1')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    const monthMap: Record<string, number> = {
+      jan: 0,
+      january: 0,
+      feb: 1,
+      february: 1,
+      mar: 2,
+      march: 2,
+      apr: 3,
+      april: 3,
+      may: 4,
+      jun: 5,
+      june: 5,
+      jul: 6,
+      july: 6,
+      aug: 7,
+      august: 7,
+      sep: 8,
+      sept: 8,
+      september: 8,
+      oct: 9,
+      october: 9,
+      nov: 10,
+      november: 10,
+      dec: 11,
+      december: 11,
+    };
+
+    // Parse: "1 april" or "1 april 2026"
+    const dayMonthMatch = cleaned.match(
+      /^(\d{1,2})\s+(jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)(?:\s+(\d{4}))?$/i
+    );
+    if (dayMonthMatch) {
+      const day = Number(dayMonthMatch[1]);
+      const month = monthMap[dayMonthMatch[2].toLowerCase()];
+      const explicitYear = dayMonthMatch[3] ? Number(dayMonthMatch[3]) : undefined;
+
+      if (month !== undefined) {
+        const now = new Date();
+        let year = explicitYear ?? now.getFullYear();
+        let parsed = new Date(year, month, day);
+
+        // If year is omitted and the date has already passed this year, use next year.
+        if (!explicitYear) {
+          const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+          if (parsed < today) {
+            year += 1;
+            parsed = new Date(year, month, day);
+          }
+        }
+
+        if (!Number.isNaN(parsed.getTime())) {
+          return parsed;
+        }
+      }
+    }
+
+    // Parse: "april 1" or "april 1 2026"
+    const monthDayMatch = cleaned.match(
+      /^(jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)\s+(\d{1,2})(?:\s*,?\s*(\d{4}))?$/i
+    );
+    if (monthDayMatch) {
+      const month = monthMap[monthDayMatch[1].toLowerCase()];
+      const day = Number(monthDayMatch[2]);
+      const explicitYear = monthDayMatch[3] ? Number(monthDayMatch[3]) : undefined;
+
+      if (month !== undefined) {
+        const now = new Date();
+        let year = explicitYear ?? now.getFullYear();
+        let parsed = new Date(year, month, day);
+
+        if (!explicitYear) {
+          const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+          if (parsed < today) {
+            year += 1;
+            parsed = new Date(year, month, day);
+          }
+        }
+
+        if (!Number.isNaN(parsed.getTime())) {
+          return parsed;
+        }
+      }
+    }
+
+    const parsedMs = Date.parse(cleaned);
+    if (Number.isNaN(parsedMs)) {
+      return null;
+    }
+
+    const parsed = new Date(parsedMs);
+    if (Number.isNaN(parsed.getTime())) {
+      return null;
+    }
+
+    return parsed;
+  }
+
+  private isNightTravelWindow(departureTime: Date): boolean {
+    const hour = departureTime.getHours();
+    return hour >= 20 || hour < 5;
+  }
+
+  /**
+   * Get color for route type (for map rendering)
+   */
+  private getRouteColor(transportType: string): string {
+    const colorMap: Record<string, string> = {
+      bus: '#3B82F6', // Blue
+      train: '#10B981', // Green
+      car: '#F59E0B', // Amber
+      taxi: '#F59E0B', // Amber
+      tuk_tuk: '#8B5CF6', // Purple
+    };
+    return colorMap[transportType.toLowerCase()] || '#6B7280'; // Gray default
+  }
+
   /**
    * Get emoji for navigation maneuver
    */
@@ -953,6 +1699,376 @@ Return JSON with: intent, origin, destination, transport_type`;
     };
 
     return maneuverMap[maneuver.toLowerCase()] || '➡️';
+  }
+
+  /**
+   * Generate a humanized, conversational departure times response using LLM
+   */
+  private async generateHumanizedTimeResponse(
+    origin: string,
+    destination: string,
+    distanceKm: number,
+    timingData: Array<{
+      mode: string;
+      available: boolean;
+      nextDeparture?: string;
+      upcomingDepartures?: string[];
+      reason?: string;
+    }>
+  ): Promise<string> {
+    try {
+      // Build structured data for LLM
+      const dataString = JSON.stringify(
+        {
+          route: `${origin} → ${destination}`,
+          distance_km: distanceKm.toFixed(1),
+          transport_options: timingData,
+        },
+        null,
+        2
+      );
+
+      const systemPrompt = `You are a friendly, helpful Sri Lankan transport assistant. Your job is to present departure times in a clear, conversational way.
+
+Guidelines:
+- Start with a friendly greeting about the route
+- Present the distance naturally in the conversation
+- For each transport mode, clearly show:
+  * Bus: Use 🚌 emoji
+  * Train: Use 🚊 emoji  
+  * Car/Taxi: Use 🚗 emoji
+- Show next departure time prominently
+- List upcoming departures if available (just the times, cleanly formatted)
+- If a mode is not available, explain why briefly and positively
+- Keep the tone warm and conversational, like talking to a friend
+- Don't mention "mock times" or "estimates" - present the information as factual timetable data
+- Keep it concise but complete
+
+Keep the response structured but natural - it should feel helpful and easy to scan.`;
+
+      const userPrompt = `Present these departure times in a friendly, conversational way:\n\n${dataString}`;
+
+      const response = await this.llmService.generateCompletionWithSystem(
+        systemPrompt,
+        userPrompt,
+        600,
+        0.7
+      );
+
+      return (
+        response || this.buildFallbackTimeResponse(origin, destination, distanceKm, timingData)
+      );
+    } catch (error) {
+      logger.error('Error generating humanized time response:', error);
+      // Fallback to structured response if LLM fails
+      return this.buildFallbackTimeResponse(origin, destination, distanceKm, timingData);
+    }
+  }
+
+  /**
+   * Fallback time response if LLM fails
+   */
+  private buildFallbackTimeResponse(
+    origin: string,
+    destination: string,
+    distanceKm: number,
+    timingData: Array<{
+      mode: string;
+      available: boolean;
+      nextDeparture?: string;
+      upcomingDepartures?: string[];
+      reason?: string;
+    }>
+  ): string {
+    let response = `**Departure Times: ${origin} → ${destination}**\n`;
+    response += `Distance: ${distanceKm.toFixed(1)} km\n\n`;
+
+    let hasAvailableMode = false;
+
+    for (const data of timingData) {
+      if (!data.available) {
+        response += `❌ **${data.mode}**: Not available\n`;
+        if (data.reason) {
+          response += `   (${data.reason})\n`;
+        }
+        response += '\n';
+        continue;
+      }
+
+      hasAvailableMode = true;
+
+      const modeEmoji = data.mode === 'Bus' ? '🚌' : data.mode === 'Train' ? '🚊' : '🚗';
+      response += `${modeEmoji} **${data.mode}**\n`;
+
+      if (data.nextDeparture) {
+        if (data.mode === 'Car/Taxi') {
+          response += `   ✅ ${data.nextDeparture}\n`;
+          response += `   💡 PickMe, Uber, or local taxi services\n`;
+        } else {
+          response += `   🕐 Next Departure: ${data.nextDeparture}\n`;
+
+          if (data.upcomingDepartures && data.upcomingDepartures.length > 0) {
+            response += `   📅 Upcoming:\n`;
+            data.upcomingDepartures.forEach((dep) => {
+              response += `      • ${dep}\n`;
+            });
+          }
+        }
+      } else if (data.reason) {
+        response += `   ⚠️ ${data.reason}\n`;
+      }
+      response += '\n';
+    }
+
+    if (!hasAvailableMode) {
+      response += '💡 No public transport available on this route. Consider car/taxi services.\n';
+    }
+
+    return response;
+  }
+
+  /**
+   * Handle time query (next bus/train departure times)
+   */
+  private async handleTimeQuery(
+    conversation: IConversation,
+    _request: ChatRequest,
+    intent: ExtractedIntent
+  ): Promise<ChatResponse> {
+    try {
+      const { origin, destination, transport_type } = intent.entities;
+
+      // Try to get route context from conversation context first (from last route query)
+      let finalOrigin = origin;
+      let finalDestination = destination;
+
+      // If not provided, check conversation context (stored after route query)
+      if (!finalOrigin || !finalDestination) {
+        const context = conversation.context;
+        if (context?.current_location?.city_name && !finalOrigin) {
+          finalOrigin = context.current_location.city_name;
+          logger.info('Using origin from conversation context:', finalOrigin);
+        }
+        if (context?.destination?.city_name && !finalDestination) {
+          finalDestination = context.destination.city_name;
+          logger.info('Using destination from conversation context:', finalDestination);
+        }
+      }
+
+      // Fallback to pending query context if still not found
+      if (!finalOrigin || !finalDestination) {
+        const pendingQuery = this.conversationService.getPendingRouteQuery(conversation);
+        if (!finalOrigin && pendingQuery?.origin?.name) {
+          finalOrigin = pendingQuery.origin.name;
+        }
+        if (!finalDestination && pendingQuery?.destination?.name) {
+          finalDestination = pendingQuery.destination.name;
+        }
+      }
+
+      // If we still don't have both locations, ask for them
+      if (!finalOrigin || !finalDestination) {
+        logger.warn('Time query without complete location context', {
+          hasOrigin: !!finalOrigin,
+          hasDestination: !!finalDestination,
+          conversationContext: conversation.context,
+        });
+
+        return {
+          conversation_id: String(conversation._id),
+          message: `To check departure times, I need a complete route first.\n\n💡 **Try asking:** "I want to go from Colombo to Kandy"\n\nThen you can ask about departure times, and I'll remember your route!`,
+          message_type: 'text',
+          suggestions: [
+            'I want to go from Colombo to Kandy',
+            'Show routes from Galle to Colombo',
+            'Nugegoda to Anuradhapura',
+          ],
+        };
+      }
+
+      logger.info('Using locations for time query:', {
+        origin: finalOrigin,
+        destination: finalDestination,
+        fromContext: !origin && !destination,
+      });
+
+      // Find cities
+      const originCity = await this.transportService.findCity({ cityName: finalOrigin });
+      const destCity = await this.transportService.findCity({ cityName: finalDestination });
+
+      if (!originCity || !destCity) {
+        const missingCity = !originCity ? finalOrigin : finalDestination;
+        const wasFromContext = !origin && !destination;
+
+        let message = `I couldn't find "${missingCity}". `;
+
+        if (wasFromContext) {
+          message += `This location might have been saved incorrectly from a previous query.\n\n💡 **Try asking for a new route:**\n"I want to go from Colombo to Kandy"`;
+        } else {
+          message += `Please check the spelling or try a nearby city.`;
+        }
+
+        logger.warn('City not found in time query', {
+          missingCity,
+          wasFromContext,
+          origin: finalOrigin,
+          destination: finalDestination,
+        });
+
+        return {
+          conversation_id: String(conversation._id),
+          message,
+          message_type: 'text',
+          suggestions: [
+            'I want to go from Colombo to Kandy',
+            'Show routes from Galle to Colombo',
+            'Transport options to Anuradhapura',
+          ],
+        };
+      }
+
+      // Calculate distance between cities
+      const originCoords = {
+        lat: originCity.location.coordinates[1],
+        lng: originCity.location.coordinates[0],
+      };
+      const destCoords = {
+        lat: destCity.location.coordinates[1],
+        lng: destCity.location.coordinates[0],
+      };
+
+      // Get distance from Google Maps
+      const routes = await this.googleMapsService.getDirections(
+        originCoords,
+        destCoords,
+        'driving',
+        false
+      );
+      const distanceKm = routes.length > 0 ? routes[0].distance / 1000 : 0;
+
+      // Collect departure data for all available modes
+      const modes: Array<{ type: 'bus' | 'train' | 'car'; name: string; available: boolean }> = [
+        {
+          type: 'bus',
+          name: 'Bus',
+          available: Boolean(
+            originCity.transport_access?.has_bus && destCity.transport_access?.has_bus
+          ),
+        },
+        {
+          type: 'train',
+          name: 'Train',
+          available:
+            this.hasReliableRailwayAccess(originCity) && this.hasReliableRailwayAccess(destCity),
+        },
+        {
+          type: 'car',
+          name: 'Car/Taxi',
+          available: true, // Always available
+        },
+      ];
+
+      // Filter by transport type if specified
+      const targetModes = transport_type ? modes.filter((m) => m.type === transport_type) : modes;
+
+      // Collect timing data for LLM
+      const timingData: Array<{
+        mode: string;
+        available: boolean;
+        nextDeparture?: string;
+        upcomingDepartures?: string[];
+        reason?: string;
+      }> = [];
+
+      for (const mode of targetModes) {
+        if (!mode.available) {
+          let reason = '';
+          if (mode.type === 'bus') {
+            reason = 'One or both cities lack bus access';
+          } else if (mode.type === 'train') {
+            reason = 'No railway stations at origin or destination';
+          }
+          timingData.push({
+            mode: mode.name,
+            available: false,
+            reason,
+          });
+          continue;
+        }
+
+        const nextDeparture = this.mockTimetableService.getNextDeparture(
+          distanceKm,
+          mode.type,
+          new Date()
+        );
+
+        if (!nextDeparture) {
+          timingData.push({
+            mode: mode.name,
+            available: true,
+            reason: 'Unable to fetch timing',
+          });
+          continue;
+        }
+
+        const upcomingDepartures = this.mockTimetableService.getUpcomingDepartures(
+          distanceKm,
+          mode.type,
+          3,
+          new Date()
+        );
+
+        if (mode.type === 'car') {
+          timingData.push({
+            mode: mode.name,
+            available: true,
+            nextDeparture: 'On demand (book anytime)',
+          });
+        } else {
+          timingData.push({
+            mode: mode.name,
+            available: true,
+            nextDeparture: this.mockTimetableService.formatDepartureForDisplay(nextDeparture),
+            upcomingDepartures:
+              upcomingDepartures.length > 1
+                ? upcomingDepartures
+                    .slice(1, 3)
+                    .map((dep) => this.mockTimetableService.formatDepartureForDisplay(dep))
+                : undefined,
+          });
+        }
+      }
+
+      // Generate humanized response using LLM
+      const response = await this.generateHumanizedTimeResponse(
+        finalOrigin,
+        finalDestination,
+        distanceKm,
+        timingData
+      );
+
+      return {
+        conversation_id: String(conversation._id),
+        message: response,
+        message_type: 'text',
+        metadata: {
+          intent: 'time_query',
+          locations_identified: [
+            { name: finalOrigin, city_id: originCity.city_id, confidence: 0.95 },
+            { name: finalDestination, city_id: destCity.city_id, confidence: 0.95 },
+          ],
+          processing_time_ms: 0,
+        },
+        suggestions: ['Show me route options', 'What about cheaper routes?', 'Weather information'],
+      };
+    } catch (error) {
+      logger.error('Error handling time query:', error);
+      return {
+        conversation_id: String(conversation._id),
+        message: 'I encountered an error while fetching departure times. Please try again.',
+        message_type: 'error',
+      };
+    }
   }
 
   /**
@@ -1019,7 +2135,7 @@ Return JSON with: intent, origin, destination, transport_type`;
    */
   private async handleLocationInfo(
     conversation: IConversation,
-    _request: ChatRequest,
+    request: ChatRequest,
     intent: ExtractedIntent
   ): Promise<ChatResponse> {
     const location = intent.entities.destination || intent.entities.origin;
@@ -1032,6 +2148,86 @@ Return JSON with: intent, origin, destination, transport_type`;
       };
     }
 
+    // Check if this is a tourism/attraction question
+    const lowerMessage = request.message.toLowerCase();
+    const isTourismQuestion =
+      /(?:attraction|tourist|destination|place|visit|see|thing|explore|sight|best|top|popular|beautiful|nice|scenic|spot|point|interest|landmark)/i.test(
+        lowerMessage
+      );
+
+    // If it's a tourism question, use the LLM to answer dynamically
+    if (isTourismQuestion) {
+      try {
+        // Get conversation history for context
+        const recentMessages = await this.conversationService.getRecentMessages(
+          String(conversation._id),
+          10
+        );
+
+        // Get route context for more accurate responses
+        const routeContext = conversation.context;
+        const originName =
+          intent.entities.origin || routeContext?.current_location?.city_name || 'your origin';
+        const destName =
+          intent.entities.destination || routeContext?.destination?.city_name || 'your destination';
+
+        const systemPrompt = `You are a helpful Sri Lankan transport and tourism assistant. 
+You specialize in:
+1. **Transport routes** - Buses, trains, and travel connections across Sri Lanka
+2. **Tourist attractions** - You know about popular destinations, landmarks, beaches, national parks, and things to do in every region of Sri Lanka
+3. **Travel tips** - Cultural awareness, best times to visit, local recommendations
+
+When asked about tourist destinations or attractions:
+- Provide specific attraction names and descriptions
+- Mention what makes each place special
+- Include practical transport tips (how to get there)
+- Be enthusiastic and helpful
+- Use relevant emojis to make responses engaging
+
+IMPORTANT: The user is asking about locations between ${originName} and ${destName}. 
+Focus on attractions ALONG OR NEAR this route.`;
+
+        const conversationHistory = recentMessages
+          .map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`)
+          .join('\n');
+
+        const response = await this.llmService.generateCompletionWithSystem(
+          systemPrompt,
+          `Conversation history:\n${conversationHistory}\n\nUser: ${request.message}`,
+          1000,
+          0.7
+        );
+
+        return {
+          conversation_id: String(conversation._id),
+          message: response,
+          message_type: 'text',
+        };
+      } catch (error) {
+        logger.warn('LLM failed for tourism question in location_info, using fallback', error);
+
+        // Get route context for fallback too
+        const routeContext = conversation.context;
+        const originName =
+          intent.entities.origin || routeContext?.current_location?.city_name || 'your origin';
+        const destName =
+          intent.entities.destination || routeContext?.destination?.city_name || 'your destination';
+
+        // Fallback: provide helpful guidance
+        return {
+          conversation_id: String(conversation._id),
+          message: `I'd love to tell you about attractions between ${originName} and ${destName}! 🌍\n\nWhile I can't provide detailed information right now, I recommend:\n\n• Searching online for "${originName} to ${destName} attractions"\n• Asking locals along the route\n• Checking for national parks, beaches, temples, or historical sites\n\nI can help you plan the transport for your journey though! Just let me know if you need route information.`,
+          message_type: 'text',
+          suggestions: [
+            `Route from ${originName} to ${destName}`,
+            `Weather along the route`,
+            `Tell me about ${destName}`,
+          ],
+        };
+      }
+    }
+
+    // Standard location info (non-tourism)
     const city = await this.transportService.findCity({ cityName: location });
     if (!city) {
       return {
@@ -1041,15 +2237,23 @@ Return JSON with: intent, origin, destination, transport_type`;
       };
     }
 
-    let message = `📍 **${city.name.en}**\n\n`;
-    message += `**Transport Access:**\n`;
-    message += `🚂 Railway: ${city.transport_access.has_railway ? 'Available' : 'Not available'} (${city.transport_stats.railway_stations_count} stations)\n`;
-    message += `🚌 Bus: ${city.transport_access.has_bus ? 'Available' : 'Not available'} (${city.transport_stats.bus_stations_count} stations)\n`;
+    let message = `I see you mentioned ${city.name.en}! 🌍\n\n`;
+    message += `I can help you with:\n`;
+    message += `• Getting TO ${city.name.en} - just tell me where you're starting from\n`;
+    message += `• Traveling FROM ${city.name.en} - let me know your destination\n`;
+    message += `• Weather conditions in ${city.name.en}\n`;
+    message += `• Information about the city\n\n`;
+    message += `What would you like to know?`;
 
     return {
       conversation_id: String(conversation._id),
       message,
-      message_type: 'location_info',
+      message_type: 'text',
+      suggestions: [
+        `How to get to ${city.name.en}?`,
+        `Routes from ${city.name.en}`,
+        `Weather in ${city.name.en}`,
+      ],
     };
   }
 
@@ -1089,16 +2293,53 @@ Return JSON with: intent, origin, destination, transport_type`;
     context: IMessage[]
   ): Promise<ChatResponse> {
     try {
-      const systemPrompt = `You are a helpful Sri Lankan transport assistant specializing in buses and trains. 
-You help tourists and locals navigate Sri Lanka's public transport system.
-Be friendly, concise, and culturally aware. If you don't know something, admit it and suggest alternatives.`;
+      logger.info('Handling general question with LLM', {
+        query: request.message,
+      });
+
+      // Use existing LLM with context
+      const routeContext = conversation.context;
+      let contextInfo = '';
+
+      const originName = routeContext?.current_location?.city_name;
+      const destName = routeContext?.destination?.city_name;
+
+      if (originName && destName) {
+        contextInfo = `\n\n**IMPORTANT CONTEXT:** The user is currently discussing a route from ${originName} to ${destName}. 
+If they ask about "the cheapest", "the fastest", "which one", "that route", "this trip", etc., they are referring to THIS specific route: ${originName} → ${destName}.
+Do NOT mention other routes or cities unless specifically asked. Focus your answer on their current route.`;
+
+        logger.info('Route context available for general question:', {
+          origin: originName,
+          destination: destName,
+          userQuestion: request.message,
+        });
+      }
+
+      const systemPrompt = `You are a helpful Sri Lankan transport and tourism assistant. 
+You specialize in:
+1. **Transport routes** - Buses, trains, and travel connections across Sri Lanka
+2. **Tourist attractions** - You know about popular destinations, landmarks, beaches, national parks, and things to do in every region of Sri Lanka
+3. **Travel tips** - Cultural awareness, best times to visit, local recommendations
+
+When asked about tourist destinations or attractions:
+- Provide specific attraction names and descriptions
+- Mention what makes each place special
+- Include practical transport tips (how to get there)
+- Be enthusiastic and helpful
+- Use relevant emojis to make responses engaging
+
+Be friendly, culturally aware, and helpful. If you don't know something, admit it and suggest alternatives.${contextInfo}`;
 
       const conversationHistory = context
         .map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`)
         .join('\n');
 
-      const response = await this.llmService.generateCompletion(
-        `${systemPrompt}\n\nConversation history:\n${conversationHistory}\n\nUser: ${request.message}\n\nAssistant:`
+      const response = await this.llmService.generateCompletionWithSystem(
+        systemPrompt,
+        `Conversation history:\n${conversationHistory}\n\nUser: ${request.message}`,
+        1000,
+        0.7
       );
 
       return {
@@ -1174,5 +2415,104 @@ Be friendly, concise, and culturally aware. If you don't know something, admit i
     conversationId: string
   ): Promise<{ conversation: IConversation; messages: IMessage[] } | null> {
     return this.conversationService.getConversation(conversationId);
+  }
+
+  /**
+   * Start a fresh trip conversation (used by "New Trip" button)
+   */
+  async startNewTripConversation(
+    userId: string,
+    title?: string
+  ): Promise<{
+    conversation_id: string;
+    status: 'started';
+    ended_previous_conversation: boolean;
+    title: string;
+    created_at: Date;
+  }> {
+    const activeConversation = await this.conversationService.getActiveConversation(userId);
+
+    let endedPreviousConversation = false;
+    if (activeConversation) {
+      await this.conversationService.endConversation(String(activeConversation._id));
+      endedPreviousConversation = true;
+    }
+
+    const now = new Date();
+    const defaultTitle = `Trip ${now.toLocaleDateString('en-LK')} ${now.toLocaleTimeString(
+      'en-LK',
+      {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: true,
+      }
+    )}`;
+
+    const newConversation = await this.conversationService.createConversation({
+      user_id: userId,
+      title: title?.trim() || defaultTitle,
+    });
+
+    return {
+      conversation_id: String(newConversation._id),
+      status: 'started',
+      ended_previous_conversation: endedPreviousConversation,
+      title: newConversation.title || defaultTitle,
+      created_at: newConversation.createdAt,
+    };
+  }
+
+  /**
+   * Direct RAG query - simple standalone endpoint for knowledge-based questions
+   * No session/conversation history needed
+   */
+  async queryRAG(
+    message: string,
+    language: string = 'en'
+  ): Promise<{
+    answer: string;
+    sources: Array<{
+      source: string;
+      category: string;
+    }>;
+    confidence_score: number;
+    search_time_ms: number;
+    total_results: number;
+  }> {
+    try {
+      logger.info('Direct RAG query:', {
+        message,
+        language,
+      });
+
+      const filters = {
+        use_rag: true,
+        language,
+      };
+
+      // Call ML RAG service directly
+      const ragResponse = await this.mlService.searchKnowledge(message, filters);
+
+      logger.info('RAG response:', {
+        query: message,
+        results_count: ragResponse.total_results,
+        top_score: ragResponse.results[0]?.score,
+        search_time_ms: ragResponse.search_time_ms,
+      });
+
+      return {
+        answer: ragResponse.answer,
+        sources: ragResponse.results.slice(0, 3).map((r) => ({
+          source: r.metadata.source,
+          category: r.metadata.category,
+        })),
+        confidence_score: ragResponse.results[0]?.score || 0,
+        search_time_ms: ragResponse.search_time_ms,
+        total_results: ragResponse.total_results,
+      };
+    } catch (error) {
+      logger.error('RAG query failed:', error);
+      throw error;
+    }
   }
 }

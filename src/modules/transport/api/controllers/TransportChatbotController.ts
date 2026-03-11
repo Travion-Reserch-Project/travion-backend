@@ -1,4 +1,5 @@
 import { Response, NextFunction } from 'express';
+import axios from 'axios';
 import { TransportChatbotService } from '../../domain/services/TransportChatbotService';
 import { AuthRequest } from '../../../../shared/middleware/auth';
 import { logger } from '../../../../shared/config/logger';
@@ -48,6 +49,33 @@ export class TransportChatbotController {
       });
     } catch (error) {
       logger.error('Error in processMessage:', error);
+      next(error);
+    }
+  };
+
+  /**
+   * Start a new trip conversation
+   */
+  startNewTrip = async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const userId = req.user?.userId;
+      if (!userId) {
+        res.status(401).json({
+          success: false,
+          message: 'User not authenticated',
+        });
+        return;
+      }
+
+      const { title } = req.body;
+      const result = await this.chatbotService.startNewTripConversation(userId, title);
+
+      res.status(201).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      logger.error('Error in startNewTrip:', error);
       next(error);
     }
   };
@@ -126,5 +154,49 @@ export class TransportChatbotController {
       message: 'Transport Chatbot service is running',
       timestamp: new Date().toISOString(),
     });
+  };
+
+  /**
+   * Direct RAG query - no session/conversation needed
+   */
+  askRAG = async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const userId = req.user?.userId;
+      if (!userId) {
+        res.status(401).json({
+          success: false,
+          message: 'User not authenticated',
+        });
+        return;
+      }
+
+      const { message, language } = req.body;
+
+      if (!message || message.trim().length === 0) {
+        res.status(400).json({
+          success: false,
+          message: 'Message is required',
+        });
+        return;
+      }
+
+      const response = await this.chatbotService.queryRAG(message, language || 'en');
+
+      res.status(200).json({
+        success: true,
+        data: response,
+      });
+    } catch (error) {
+      if (axios.isAxiosError(error) && error.code === 'ECONNABORTED') {
+        res.status(504).json({
+          success: false,
+          message: 'AI knowledge service timed out. Please try again in a few seconds.',
+        });
+        return;
+      }
+
+      logger.error('Error in askRAG:', error);
+      next(error);
+    }
   };
 }

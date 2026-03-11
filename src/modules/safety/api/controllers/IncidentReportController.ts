@@ -30,7 +30,15 @@ export class IncidentReportController {
 
       // userId is optional - undefined for anonymous reports
       const userId = req.user?.userId || undefined;
-      const { incidentType, location, incidentTime, description, photoUrl, isAnonymous } = req.body;
+      const {
+        incidentType,
+        location,
+        incidentTime,
+        description,
+        photoUrl,
+        isAnonymous,
+        reporterDeviceToken,
+      } = req.body;
 
       console.log('[IncidentReportController] Received report data:', {
         userId,
@@ -40,6 +48,7 @@ export class IncidentReportController {
         description: description?.substring(0, 50),
         photoUrl,
         isAnonymous,
+        reporterDeviceToken: reporterDeviceToken ? '***' : undefined,
       });
 
       const result = await this.incidentReportService.createReport({
@@ -50,6 +59,7 @@ export class IncidentReportController {
         description,
         photoUrl,
         isAnonymous: isAnonymous || !userId,
+        reporterDeviceToken,
       });
 
       console.log('[IncidentReportController] Service result:', {

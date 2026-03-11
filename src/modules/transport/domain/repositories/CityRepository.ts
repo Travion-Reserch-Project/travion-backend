@@ -1,6 +1,16 @@
 import { City, ICity } from '../models/City';
 
 export class CityRepository {
+  private toSlug(value: string): string {
+    return value
+      .toString()
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9\s-]/g, '')
+      .replace(/\s+/g, '-')
+      .replace(/-+/g, '-');
+  }
+
   async findById(cityId: number): Promise<ICity | null> {
     return City.findOne({ city_id: cityId });
   }
@@ -12,17 +22,41 @@ export class CityRepository {
   }
 
   async searchByName(searchTerm: string): Promise<ICity[]> {
+    const trimmedTerm = searchTerm.trim();
+    const slugTerm = this.toSlug(trimmedTerm);
+
     // Special handling for "Colombo" without number - match "Colombo 1" first
-    if (/^colombo$/i.test(searchTerm.trim())) {
+    if (/^colombo$/i.test(trimmedTerm)) {
       const colombo1 = await City.findOne({ 'name.en': /^Colombo 1$/i });
       if (colombo1) return [colombo1];
     }
 
+    // Use word boundaries to prevent "Colombo 1" from matching "Colombo 15"
+    // Escape special regex characters in search term
+    const escapedTerm = trimmedTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+    // Try exact match first (case-insensitive)
+    const exactMatch = await City.findOne({
+      $or: [
+        { city_name: new RegExp(`^${escapedTerm}$`, 'i') },
+        { 'name.en': new RegExp(`^${escapedTerm}$`, 'i') },
+        { 'name.si': new RegExp(`^${escapedTerm}$`, 'i') },
+        { 'name.ta': new RegExp(`^${escapedTerm}$`, 'i') },
+      ],
+    });
+
+    if (exactMatch) {
+      return [exactMatch];
+    }
+
+    // Fallback to partial match with word boundaries
     return City.find({
       $or: [
-        { 'name.en': new RegExp(searchTerm, 'i') },
-        { 'name.si': new RegExp(searchTerm, 'i') },
-        { 'name.ta': new RegExp(searchTerm, 'i') },
+        { city_name: new RegExp(`\\b${escapedTerm}\\b`, 'i') },
+        { slug: slugTerm },
+        { 'name.en': new RegExp(`\\b${escapedTerm}\\b`, 'i') },
+        { 'name.si': new RegExp(`\\b${escapedTerm}\\b`, 'i') },
+        { 'name.ta': new RegExp(`\\b${escapedTerm}\\b`, 'i') },
       ],
     }).limit(10);
   }

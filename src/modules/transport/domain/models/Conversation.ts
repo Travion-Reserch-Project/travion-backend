@@ -20,6 +20,19 @@ export interface IConversation extends Document {
       budget?: 'low' | 'medium' | 'high';
       language?: 'en' | 'si' | 'ta';
     };
+    pending_route_query?: {
+      origin?: {
+        name: string;
+        city_id?: number;
+        coordinates?: { lat: number; lng: number };
+      };
+      destination?: {
+        name: string;
+        city_id?: number;
+        coordinates?: { lat: number; lng: number };
+      };
+      timestamp: Date;
+    };
   };
   metadata?: {
     message_count: number;
@@ -71,6 +84,25 @@ const ConversationSchema = new Schema<IConversation>(
           enum: ['en', 'si', 'ta'],
           default: 'en',
         },
+      },
+      pending_route_query: {
+        origin: {
+          name: String,
+          city_id: Number,
+          coordinates: {
+            lat: Number,
+            lng: Number,
+          },
+        },
+        destination: {
+          name: String,
+          city_id: Number,
+          coordinates: {
+            lat: Number,
+            lng: Number,
+          },
+        },
+        timestamp: Date,
       },
     },
     metadata: {

@@ -21,13 +21,13 @@ import { IItineraryItem, ITripConstraint, IAIMetadata } from './SavedTrip';
  * Trip monitoring status
  */
 export enum MonitoringStatus {
-  NOT_MONITORING = 'NOT_MONITORING',      // Trip not yet accepted for monitoring
+  NOT_MONITORING = 'NOT_MONITORING', // Trip not yet accepted for monitoring
   ACTIVE_MONITORING = 'ACTIVE_MONITORING', // Trip is being actively monitored
-  ALERT_DETECTED = 'ALERT_DETECTED',       // Issues detected, awaiting user response
+  ALERT_DETECTED = 'ALERT_DETECTED', // Issues detected, awaiting user response
   DELTA_PLAN_GENERATED = 'DELTA_PLAN_GENERATED', // Alternative plan generated
-  PAUSED = 'PAUSED',                       // Monitoring temporarily paused
-  COMPLETED = 'COMPLETED',                 // Trip completed, monitoring ended
-  CANCELLED = 'CANCELLED',                 // Trip cancelled
+  PAUSED = 'PAUSED', // Monitoring temporarily paused
+  COMPLETED = 'COMPLETED', // Trip completed, monitoring ended
+  CANCELLED = 'CANCELLED', // Trip cancelled
 }
 
 /**
@@ -67,7 +67,7 @@ export interface IMonitoringCheck {
   timestamp: Date;
   checkType: 'weather' | 'alerts' | 'full';
   status: 'passed' | 'warning' | 'failed';
-  weatherScore?: number;        // 0-100 suitability score
+  weatherScore?: number; // 0-100 suitability score
   alertsFound?: number;
   details: string;
   rawResponse?: Record<string, unknown>;
@@ -105,7 +105,7 @@ export interface IWeatherForecast {
   temperatureMax: number;
   rainProbability: number;
   windSpeed: number;
-  suitabilityScore: number;  // 0-100
+  suitabilityScore: number; // 0-100
   alerts: string[];
   lastUpdated: Date;
 }
@@ -116,7 +116,7 @@ export interface IWeatherForecast {
 export interface IDeltaPlan {
   deltaId: string;
   generatedAt: Date;
-  reason: string;            // Why this delta was generated
+  reason: string; // Why this delta was generated
   triggeringAlertId?: string;
   originalItems: IItineraryItem[];
   suggestedItems: IItineraryItem[];
@@ -189,7 +189,7 @@ export interface ITripPlan extends Document {
   monitoringEndedAt?: Date;
   lastMonitoringCheck?: Date;
   nextScheduledCheck?: Date;
-  monitoringInterval: number;      // In milliseconds, default 4 hours
+  monitoringInterval: number; // In milliseconds, default 4 hours
 
   // Validation and Checks
   initialValidation?: IValidationResult;
@@ -383,10 +383,12 @@ const weatherForecastSchema = new Schema<IWeatherForecast>(
       max: 100,
       required: true,
     },
-    alerts: [{
-      type: String,
-      trim: true,
-    }],
+    alerts: [
+      {
+        type: String,
+        trim: true,
+      },
+    ],
     lastUpdated: {
       type: Date,
       required: true,
@@ -423,9 +425,11 @@ const deltaPlanSchema = new Schema<IDeltaPlan>(
       type: [Schema.Types.Mixed],
       default: [],
     },
-    affectedDates: [{
-      type: Date,
-    }],
+    affectedDates: [
+      {
+        type: Date,
+      },
+    ],
     impactSummary: {
       type: String,
       required: true,
@@ -471,10 +475,12 @@ const notificationRecordSchema = new Schema<INotificationRecord>(
       required: true,
       default: Date.now,
     },
-    sentVia: [{
-      type: String,
-      enum: ['push', 'email', 'sms'],
-    }],
+    sentVia: [
+      {
+        type: String,
+        enum: ['push', 'email', 'sms'],
+      },
+    ],
     readAt: {
       type: Date,
     },
@@ -519,14 +525,18 @@ const validationResultSchema = new Schema<IValidationResult>(
     eventValidation: {
       type: Schema.Types.Mixed,
     },
-    recommendations: [{
-      type: String,
-      trim: true,
-    }],
-    correctionHints: [{
-      type: String,
-      trim: true,
-    }],
+    recommendations: [
+      {
+        type: String,
+        trim: true,
+      },
+    ],
+    correctionHints: [
+      {
+        type: String,
+        trim: true,
+      },
+    ],
   },
   { _id: false }
 );
@@ -633,10 +643,12 @@ const tripPlanSchema = new Schema<ITripPlan>(
       type: Date,
       required: [true, 'End date is required'],
     },
-    destinations: [{
-      type: String,
-      trim: true,
-    }],
+    destinations: [
+      {
+        type: String,
+        trim: true,
+      },
+    ],
     itinerary: {
       type: [itineraryItemSchema],
       default: [],
@@ -660,11 +672,13 @@ const tripPlanSchema = new Schema<ITripPlan>(
       type: String,
       trim: true,
     },
-    tags: [{
-      type: String,
-      trim: true,
-      maxlength: 50,
-    }],
+    tags: [
+      {
+        type: String,
+        trim: true,
+        maxlength: 50,
+      },
+    ],
     estimatedBudget: {
       currency: { type: String, default: 'USD', maxlength: 3 },
       amount: { type: Number, min: 0 },
@@ -705,8 +719,8 @@ const tripPlanSchema = new Schema<ITripPlan>(
     monitoringInterval: {
       type: Number,
       default: 4 * 60 * 60 * 1000, // 4 hours in milliseconds
-      min: 15 * 60 * 1000,         // Minimum 15 minutes
-      max: 24 * 60 * 60 * 1000,    // Maximum 24 hours
+      min: 15 * 60 * 1000, // Minimum 15 minutes
+      max: 24 * 60 * 60 * 1000, // Maximum 24 hours
     },
 
     // Validation
@@ -778,7 +792,7 @@ const tripPlanSchema = new Schema<ITripPlan>(
   {
     timestamps: true,
     toJSON: {
-      transform: function(_doc, ret: Record<string, unknown>) {
+      transform: function (_doc, ret: Record<string, unknown>) {
         delete ret.__v;
         return ret;
       },
@@ -793,38 +807,38 @@ const tripPlanSchema = new Schema<ITripPlan>(
 // Index for finding trips that need monitoring checks
 tripPlanSchema.index({
   monitoringStatus: 1,
-  nextScheduledCheck: 1
+  nextScheduledCheck: 1,
 });
 
 // Index for user's monitored trips
 tripPlanSchema.index({
   userId: 1,
-  monitoringStatus: 1
+  monitoringStatus: 1,
 });
 
 // Index for trips with active alerts
 tripPlanSchema.index({
   'activeAlerts.severity': 1,
-  'activeAlerts.isAcknowledged': 1
+  'activeAlerts.isAcknowledged': 1,
 });
 
 // Index for trips starting soon (for pre-trip checks)
 tripPlanSchema.index({
   startDate: 1,
-  monitoringStatus: 1
+  monitoringStatus: 1,
 });
 
 // Index for user + date range
 tripPlanSchema.index({
   userId: 1,
-  startDate: -1
+  startDate: -1,
 });
 
 // ============================================================================
 // VALIDATION
 // ============================================================================
 
-tripPlanSchema.pre('save', function(next) {
+tripPlanSchema.pre('save', function (next) {
   if (this.endDate < this.startDate) {
     const error = new Error('End date must be after start date');
     return next(error);
@@ -847,7 +861,7 @@ tripPlanSchema.pre('save', function(next) {
 /**
  * Start monitoring for this trip
  */
-tripPlanSchema.methods.startMonitoring = function(): void {
+tripPlanSchema.methods.startMonitoring = function (): void {
   this.monitoringStatus = MonitoringStatus.ACTIVE_MONITORING;
   this.monitoringStartedAt = new Date();
   this.nextScheduledCheck = new Date(Date.now() + this.monitoringInterval);
@@ -856,7 +870,9 @@ tripPlanSchema.methods.startMonitoring = function(): void {
 /**
  * Stop monitoring for this trip
  */
-tripPlanSchema.methods.stopMonitoring = function(reason: 'completed' | 'cancelled' | 'paused'): void {
+tripPlanSchema.methods.stopMonitoring = function (
+  reason: 'completed' | 'cancelled' | 'paused'
+): void {
   if (reason === 'completed') {
     this.monitoringStatus = MonitoringStatus.COMPLETED;
   } else if (reason === 'cancelled') {
@@ -871,7 +887,7 @@ tripPlanSchema.methods.stopMonitoring = function(reason: 'completed' | 'cancelle
 /**
  * Add a new alert to the trip
  */
-tripPlanSchema.methods.addAlert = function(alert: IActiveAlert): void {
+tripPlanSchema.methods.addAlert = function (alert: IActiveAlert): void {
   this.activeAlerts.push(alert);
   this.totalAlertsDetected += 1;
 
@@ -884,7 +900,7 @@ tripPlanSchema.methods.addAlert = function(alert: IActiveAlert): void {
 /**
  * Add a monitoring check record
  */
-tripPlanSchema.methods.addMonitoringCheck = function(check: IMonitoringCheck): void {
+tripPlanSchema.methods.addMonitoringCheck = function (check: IMonitoringCheck): void {
   this.monitoringHistory.push(check);
   this.monitoringChecksCount += 1;
   this.lastMonitoringCheck = check.timestamp;
@@ -896,7 +912,7 @@ tripPlanSchema.methods.addMonitoringCheck = function(check: IMonitoringCheck): v
 /**
  * Check if trip needs monitoring check
  */
-tripPlanSchema.methods.needsMonitoringCheck = function(): boolean {
+tripPlanSchema.methods.needsMonitoringCheck = function (): boolean {
   if (this.monitoringStatus !== MonitoringStatus.ACTIVE_MONITORING) {
     return false;
   }
@@ -915,7 +931,7 @@ tripPlanSchema.methods.needsMonitoringCheck = function(): boolean {
 /**
  * Find all trips that need monitoring checks
  */
-tripPlanSchema.statics.findTripsNeedingCheck = function() {
+tripPlanSchema.statics.findTripsNeedingCheck = function () {
   return this.find({
     monitoringStatus: MonitoringStatus.ACTIVE_MONITORING,
     nextScheduledCheck: { $lte: new Date() },
@@ -925,13 +941,15 @@ tripPlanSchema.statics.findTripsNeedingCheck = function() {
 /**
  * Find trips starting within specified days
  */
-tripPlanSchema.statics.findUpcomingTrips = function(daysAhead: number = 7) {
+tripPlanSchema.statics.findUpcomingTrips = function (daysAhead: number = 7) {
   const now = new Date();
   const futureDate = new Date(now.getTime() + daysAhead * 24 * 60 * 60 * 1000);
 
   return this.find({
     startDate: { $gte: now, $lte: futureDate },
-    monitoringStatus: { $in: [MonitoringStatus.ACTIVE_MONITORING, MonitoringStatus.NOT_MONITORING] },
+    monitoringStatus: {
+      $in: [MonitoringStatus.ACTIVE_MONITORING, MonitoringStatus.NOT_MONITORING],
+    },
   });
 };
 

@@ -429,9 +429,9 @@ export class AIEngineController {
     next: NextFunction
   ): Promise<void> => {
     try {
-      const { location_name } = req.body;
+      const { location_name, date } = req.body;
 
-      const result = await this.aiEngineService.getSimpleCrowdPrediction(location_name);
+      const result = await this.aiEngineService.getSimpleCrowdPrediction(location_name, date);
 
       res.status(200).json({
         success: true,
@@ -449,9 +449,9 @@ export class AIEngineController {
    */
   getSimpleGoldenHour = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const { location_name } = req.body;
+      const { location_name, date } = req.body;
 
-      const result = await this.aiEngineService.getSimpleGoldenHour(location_name);
+      const result = await this.aiEngineService.getSimpleGoldenHour(location_name, date);
 
       res.status(200).json({
         success: true,

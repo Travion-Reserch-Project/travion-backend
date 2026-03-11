@@ -423,7 +423,6 @@ Route Option ${idx + 1}:
 - Transport: ${route.transport_type} (${route.operator_name})
 - Duration: ${route.dynamic.duration_min} minutes
 - Distance: ${route.dynamic.distance_km.toFixed(1)} km
-- Fare: LKR ${route.static.base_fare_lkr}
 - Weather Risk: ${(route.dynamic.weather_risk * 100).toFixed(0)}%
 - Traffic Delay: ${route.dynamic.traffic_delay_min} minutes
 - Comfort Score: ${(route.static.comfort_score * 100).toFixed(0)}%

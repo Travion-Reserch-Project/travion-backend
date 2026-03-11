@@ -42,6 +42,8 @@ import type {
   SimpleGoldenHourResponse,
   SimpleDescriptionResponse,
   SimpleRecommendationResponse,
+  // Hotel search
+  HotelSearchResponse,
   // Common types
   UserPreferenceScores,
 } from '../types/aiEngine';
@@ -151,7 +153,11 @@ export class AIEngineService {
     preferences?: string[],
     message?: string,
     userId?: string,
-    userPreferences?: TourPlanUserPreferences
+    userPreferences?: TourPlanUserPreferences,
+    selectedRestaurantIds?: string[],
+    selectedAccommodationIds?: string[],
+    skipRestaurants?: boolean,
+    skipAccommodations?: boolean
   ): Promise<TourPlanResponse> {
     try {
       const request: TourPlanGenerateRequest = {
@@ -163,6 +169,10 @@ export class AIEngineService {
         preferences,
         message,
         user_preferences: userPreferences,
+        selected_restaurant_ids: selectedRestaurantIds,
+        selected_accommodation_ids: selectedAccommodationIds,
+        skip_restaurants: skipRestaurants,
+        skip_accommodations: skipAccommodations,
       };
 
       logger.info(`Generating tour plan for ${selectedLocations.length} locations`);
@@ -188,7 +198,11 @@ export class AIEngineService {
     endDate: string,
     preferences?: string[],
     userId?: string,
-    userPreferences?: TourPlanUserPreferences
+    userPreferences?: TourPlanUserPreferences,
+    selectedRestaurantIds?: string[],
+    selectedAccommodationIds?: string[],
+    skipRestaurants?: boolean,
+    skipAccommodations?: boolean
   ): Promise<TourPlanResponse> {
     try {
       const request: TourPlanGenerateRequest = {
@@ -200,6 +214,10 @@ export class AIEngineService {
         preferences,
         message,
         user_preferences: userPreferences,
+        selected_restaurant_ids: selectedRestaurantIds,
+        selected_accommodation_ids: selectedAccommodationIds,
+        skip_restaurants: skipRestaurants,
+        skip_accommodations: skipAccommodations,
       };
 
       logger.info(`Refining tour plan with thread ${threadId}`);
@@ -211,6 +229,83 @@ export class AIEngineService {
       );
     } catch (error) {
       this.handleError(error, 'tour plan refinement');
+    }
+  }
+
+  // ============================================================================
+  // HOTEL / RESTAURANT SEARCH API
+  // ============================================================================
+
+  /**
+   * Search for hotels, restaurants, or activities near a location
+   */
+  async searchHotels(query: string, location?: string): Promise<HotelSearchResponse> {
+    try {
+      const params = new URLSearchParams({ query });
+      if (location) params.append('location', location);
+
+      return await httpClient.post<HotelSearchResponse>(
+        `${aiEngineConfig.baseUrl}/api/v1/hotel-search?${params.toString()}`,
+        {}
+      );
+    } catch (error) {
+      this.handleError(error, 'hotel search');
+    }
+  }
+
+  // ============================================================================
+  // HITL RESUME API (Selection & Weather Interrupt)
+  // ============================================================================
+
+  /**
+   * Resume the paused LangGraph after user selects a search candidate.
+   * Called when the generate/refine response had `pending_user_selection: true`.
+   */
+  async resumeSelection(
+    threadId: string,
+    selectedCandidateId: string,
+    userId?: string
+  ): Promise<TourPlanResponse> {
+    try {
+      logger.info(`Resuming selection — thread=${threadId}, candidate=${selectedCandidateId}`);
+
+      return await httpClient.postWithLongTimeout<TourPlanResponse>(
+        `${aiEngineConfig.baseUrl}/api/v1/select`,
+        {
+          thread_id: threadId,
+          selected_candidate_id: selectedCandidateId,
+          user_id: userId,
+        },
+        180000
+      );
+    } catch (error) {
+      this.handleError(error, 'resume selection');
+    }
+  }
+
+  /**
+   * Resume the paused LangGraph after user decides on a weather action.
+   * Called when the generate/refine response had `weather_interrupt: true`.
+   */
+  async resumeWeather(
+    threadId: string,
+    userWeatherChoice: 'switch_indoor' | 'reschedule' | 'keep',
+    userId?: string
+  ): Promise<TourPlanResponse> {
+    try {
+      logger.info(`Resuming weather — thread=${threadId}, choice=${userWeatherChoice}`);
+
+      return await httpClient.postWithLongTimeout<TourPlanResponse>(
+        `${aiEngineConfig.baseUrl}/api/v1/resume-weather`,
+        {
+          thread_id: threadId,
+          user_weather_choice: userWeatherChoice,
+          user_id: userId,
+        },
+        180000
+      );
+    } catch (error) {
+      this.handleError(error, 'resume weather');
     }
   }
 
@@ -291,11 +386,13 @@ export class AIEngineService {
   /**
    * Get simple crowd prediction by location name
    */
-  async getSimpleCrowdPrediction(locationName: string): Promise<SimpleCrowdPredictionResponse> {
+  async getSimpleCrowdPrediction(locationName: string, date?: string): Promise<SimpleCrowdPredictionResponse> {
     try {
+      const body: Record<string, string> = { location_name: locationName };
+      if (date) body.date = date;
       return await httpClient.post<SimpleCrowdPredictionResponse>(
         aiEngineConfig.endpoints.simpleCrowd,
-        { location_name: locationName }
+        body
       );
     } catch (error) {
       this.handleError(error, 'simple crowd prediction');
@@ -579,11 +676,13 @@ export class AIEngineService {
   /**
    * Get simple golden hour by location name
    */
-  async getSimpleGoldenHour(locationName: string): Promise<SimpleGoldenHourResponse> {
+  async getSimpleGoldenHour(locationName: string, date?: string): Promise<SimpleGoldenHourResponse> {
     try {
+      const body: Record<string, string> = { location_name: locationName };
+      if (date) body.date = date;
       return await httpClient.post<SimpleGoldenHourResponse>(
         aiEngineConfig.endpoints.simpleGoldenHour,
-        { location_name: locationName }
+        body
       );
     } catch (error) {
       this.handleError(error, 'simple golden hour');
