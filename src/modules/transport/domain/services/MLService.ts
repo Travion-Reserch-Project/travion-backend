@@ -53,8 +53,23 @@ export class MLService {
   private isEnabled: boolean;
   private knowledgeSearchTimeoutMs: number;
 
+  private normalizeBaseUrl(rawUrl: string): string {
+    const trimmed = rawUrl.trim().replace(/\/+$/, '');
+
+    // Guard against env values that already include endpoint segments.
+    if (trimmed.endsWith('/api/transport')) {
+      const normalized = trimmed.slice(0, -'/api/transport'.length);
+      logger.warn(
+        `ML_SERVICE_URL appears to include an endpoint path. Normalized base URL from ${trimmed} to ${normalized}`
+      );
+      return normalized;
+    }
+
+    return trimmed;
+  }
+
   constructor() {
-    this.baseUrl = process.env.ML_SERVICE_URL || 'http://localhost:8001';
+    this.baseUrl = this.normalizeBaseUrl(process.env.ML_SERVICE_URL || 'http://localhost:8001');
     this.isEnabled = process.env.ML_SERVICE_ENABLED === 'true';
     this.knowledgeSearchTimeoutMs = Number(process.env.ML_KNOWLEDGE_TIMEOUT_MS || 60000);
 
