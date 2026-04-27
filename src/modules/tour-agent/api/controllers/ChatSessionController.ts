@@ -152,7 +152,7 @@ export class ChatSessionController {
         throw new AppError('Unauthorized', 401);
       }
 
-      const { message } = req.body;
+      const { message, imageBase64 } = req.body;
       if (!message || message.trim().length === 0) {
         throw new AppError('Message is required', 400);
       }
@@ -160,7 +160,9 @@ export class ChatSessionController {
       const result = await this.chatService.sendMessage(
         req.params.sessionId,
         req.user.userId,
-        message
+        message,
+        undefined,
+        imageBase64
       );
 
       res.status(200).json({
@@ -173,6 +175,8 @@ export class ChatSessionController {
           constraints: result.constraints,
           metadata: result.metadata,
           messageCount: result.session.messageCount,
+          imageResults: result.imageResults,
+          imageValidationMessage: result.imageValidationMessage,
         },
       });
     } catch (error) {
@@ -190,7 +194,7 @@ export class ChatSessionController {
         throw new AppError('Unauthorized', 401);
       }
 
-      const { message, sessionId, context } = req.body;
+      const { message, sessionId, context, imageBase64 } = req.body;
       if (!message || message.trim().length === 0) {
         throw new AppError('Message is required', 400);
       }
@@ -205,7 +209,9 @@ export class ChatSessionController {
       const result = await this.chatService.sendMessage(
         session.sessionId,
         req.user.userId,
-        message
+        message,
+        undefined,
+        imageBase64
       );
 
       res.status(200).json({
@@ -218,6 +224,8 @@ export class ChatSessionController {
           constraints: result.constraints,
           metadata: result.metadata,
           messageCount: result.session.messageCount,
+          imageResults: result.imageResults,
+          imageValidationMessage: result.imageValidationMessage,
         },
       });
     } catch (error) {

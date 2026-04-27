@@ -152,7 +152,8 @@ export class ChatSessionService {
     sessionId: string,
     userId: string,
     message: string,
-    context?: any
+    context?: any,
+    imageBase64?: string
   ): Promise<any> {
     let session = sessionStore.get(sessionId);
     if (!session) {
@@ -176,19 +177,31 @@ export class ChatSessionService {
     let aiIntent: string | null = null;
 
     try {
+      const payload: Record<string, any> = {
+        message,
+        thread_id: sessionId,
+        user_id: userId,
+      };
+      if (imageBase64) {
+        payload.image_base64 = imageBase64;
+      }
+
       const result = await httpClient.postWithLongTimeout<any>(
         '/api/v1/chat',
-        {
-          message,
-          thread_id: sessionId,
-          user_id: userId,
-        },
+        payload,
         120000
       );
 
       aiResponse = result?.response || result?.final_response || aiResponse;
       aiIntent = result?.intent || null;
       aiMetadata = result?.metadata || {};
+      // Preserve image results from AI Engine
+      if (result?.image_results) {
+        aiMetadata.image_results = result.image_results;
+      }
+      if (result?.image_validation_message) {
+        aiMetadata.image_validation_message = result.image_validation_message;
+      }
     } catch (err) {
       logger.error('ChatSessionService.sendMessage — AI Engine error:', err);
       aiResponse = "Sorry, I'm having trouble connecting to the AI service. Please try again.";
@@ -211,6 +224,8 @@ export class ChatSessionService {
       itinerary: null,
       constraints: null,
       metadata: aiMetadata,
+      imageResults: aiMetadata.image_results || null,
+      imageValidationMessage: aiMetadata.image_validation_message || null,
     };
   }
 

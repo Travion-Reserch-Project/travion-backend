@@ -34,6 +34,10 @@ export interface AIEngineConfig {
     simpleGoldenHour: string;
     simpleDescription: string;
     simpleRecommend: string;
+    // Image Search & Validation
+    imageSearch: string;
+    imageSearchUpload: string;
+    imageValidate: string;
   };
 }
 
@@ -72,6 +76,10 @@ const getAIEngineConfig = (): AIEngineConfig => ({
     simpleGoldenHour: '/api/v1/simple/golden-hour',
     simpleDescription: '/api/v1/simple/description',
     simpleRecommend: '/api/v1/simple/recommend',
+    // Image Search & Validation
+    imageSearch: '/api/v1/images/search',
+    imageSearchUpload: '/api/v1/images/search/upload',
+    imageValidate: '/api/v1/images/validate',
   },
 });
 
