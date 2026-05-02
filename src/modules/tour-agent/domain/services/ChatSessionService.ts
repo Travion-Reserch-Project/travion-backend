@@ -7,6 +7,10 @@
 import { logger } from '../../../../shared/config/logger';
 import { httpClient } from '../../../../shared/utils/httpClient';
 import { aiEngineConfig } from '../../../../shared/config/aiEngine';
+import { uploadImageToImageKit } from '../../../../shared/utils/imageKitService';
+import { AIEngineService } from './AIEngineService';
+
+const aiEngineService = new AIEngineService();
 
 // ---------------------------------------------------------------------------
 // In-memory session store
@@ -17,6 +21,7 @@ interface StoredMessage {
   role: 'user' | 'assistant';
   content: string;
   timestamp: string;
+  imageUrl?: string;
   metadata?: Record<string, any>;
 }
 
@@ -164,17 +169,37 @@ export class ChatSessionService {
       session = sessionStore.get(created.sessionId)!;
     }
 
+    // Upload image to ImageKit for a permanent CDN URL
+    let uploadedImageUrl: string | null = null;
+    if (imageBase64) {
+      uploadedImageUrl = await uploadImageToImageKit(imageBase64);
+    }
+
     const userMsg: StoredMessage = {
       id: makeMessageId(),
       role: 'user',
       content: message,
       timestamp: new Date().toISOString(),
+      ...(uploadedImageUrl ? { imageUrl: uploadedImageUrl } : {}),
     };
     session.messages.push(userMsg);
 
     let aiResponse = "I couldn't generate a response.";
     let aiMetadata: Record<string, any> = {};
     let aiIntent: string | null = null;
+    let aiItinerary: any[] | null = null;
+    let aiConstraints: any[] | null = null;
+    // Tour-planning HITL/clarification artifacts surfaced by the AI Engine
+    let clarificationQuestion: any = null;
+    let culturalTips: any[] | null = null;
+    let finalItinerary: any = null;
+    let pendingUserSelection: boolean | null = null;
+    let selectionCards: any[] | null = null;
+    let promptText: string | null = null;
+    let weatherInterrupt: boolean | null = null;
+    let weatherPromptMessage: string | null = null;
+    let weatherPromptOptions: any[] | null = null;
+    let stepResults: any[] | null = null;
 
     try {
       const payload: Record<string, any> = {
@@ -195,6 +220,8 @@ export class ChatSessionService {
       aiResponse = result?.response || result?.final_response || aiResponse;
       aiIntent = result?.intent || null;
       aiMetadata = result?.metadata || {};
+      aiItinerary = result?.itinerary || null;
+      aiConstraints = result?.constraints || null;
       // Preserve image results from AI Engine
       if (result?.image_results) {
         aiMetadata.image_results = result.image_results;
@@ -202,17 +229,48 @@ export class ChatSessionService {
       if (result?.image_validation_message) {
         aiMetadata.image_validation_message = result.image_validation_message;
       }
+      // Capture tour-planning artifacts (snake_case from AI engine → camelCase out)
+      clarificationQuestion = result?.clarification_question ?? null;
+      culturalTips = result?.cultural_tips ?? null;
+      finalItinerary = result?.final_itinerary ?? null;
+      pendingUserSelection = result?.pending_user_selection ?? null;
+      selectionCards = result?.selection_cards ?? null;
+      promptText = result?.prompt_text ?? null;
+      weatherInterrupt = result?.weather_interrupt ?? null;
+      weatherPromptMessage = result?.weather_prompt_message ?? null;
+      weatherPromptOptions = result?.weather_prompt_options ?? null;
+      stepResults = result?.step_results ?? null;
     } catch (err) {
       logger.error('ChatSessionService.sendMessage — AI Engine error:', err);
       aiResponse = "Sorry, I'm having trouble connecting to the AI service. Please try again.";
     }
+
+    // Persist planning artifacts on the assistant message metadata so that
+    // when the user reloads the session, the inline tour plan card / HITL
+    // bubbles can be re-rendered from history without another agent call.
+    const assistantMetadata: Record<string, any> = {
+      ...aiMetadata,
+      intent: aiIntent,
+      itinerary: aiItinerary,
+      constraints: aiConstraints,
+      clarification_question: clarificationQuestion,
+      cultural_tips: culturalTips,
+      final_itinerary: finalItinerary,
+      pending_user_selection: pendingUserSelection,
+      selection_cards: selectionCards,
+      prompt_text: promptText,
+      weather_interrupt: weatherInterrupt,
+      weather_prompt_message: weatherPromptMessage,
+      weather_prompt_options: weatherPromptOptions,
+      step_results: stepResults,
+    };
 
     const assistantMsg: StoredMessage = {
       id: makeMessageId(),
       role: 'assistant',
       content: aiResponse,
       timestamp: new Date().toISOString(),
-      metadata: aiMetadata,
+      metadata: assistantMetadata,
     };
     session.messages.push(assistantMsg);
     session.updatedAt = new Date();
@@ -221,12 +279,210 @@ export class ChatSessionService {
       session: sessionSummary(session),
       response: aiResponse,
       intent: aiIntent,
-      itinerary: null,
-      constraints: null,
+      itinerary: aiItinerary,
+      constraints: aiConstraints,
       metadata: aiMetadata,
       imageResults: aiMetadata.image_results || null,
       imageValidationMessage: aiMetadata.image_validation_message || null,
+      userImageUrl: uploadedImageUrl || null,
+      // Tour-planning fields (camelCase for the mobile client)
+      clarificationQuestion,
+      culturalTips,
+      finalItinerary,
+      pendingUserSelection,
+      selectionCards,
+      promptText,
+      weatherInterrupt,
+      weatherPromptMessage,
+      weatherPromptOptions,
+      stepResults,
     };
+  }
+
+  // ============================================================================
+  // STREAMING SUPPORT — append user/assistant messages out-of-band
+  // ============================================================================
+
+  async appendUserMessage(
+    sessionId: string,
+    userId: string,
+    content: string,
+    imageUrl?: string | null
+  ): Promise<void> {
+    let session = sessionStore.get(sessionId);
+    if (!session) {
+      const created = await this.createSession(userId, {
+        title: content.slice(0, 60),
+      });
+      session = sessionStore.get(created.sessionId)!;
+    }
+    if (session.userId !== userId) return;
+    session.messages.push({
+      id: makeMessageId(),
+      role: 'user',
+      content,
+      timestamp: new Date().toISOString(),
+      ...(imageUrl ? { imageUrl } : {}),
+    });
+    session.updatedAt = new Date();
+  }
+
+  async appendAssistantMessageFromStream(
+    sessionId: string,
+    userId: string,
+    result: any
+  ): Promise<void> {
+    const session = sessionStore.get(sessionId);
+    if (!session || session.userId !== userId) return;
+
+    const content: string = result?.final_response || result?.response || 'Plan ready.';
+
+    session.messages.push({
+      id: makeMessageId(),
+      role: 'assistant',
+      content,
+      timestamp: new Date().toISOString(),
+      metadata: {
+        intent: result?.intent ?? null,
+        reasoning_loops: result?.reasoning_loops ?? 0,
+        documents_retrieved: result?.documents_retrieved ?? 0,
+        web_search_used: result?.web_search_used ?? false,
+        itinerary: result?.itinerary ?? null,
+        constraints: result?.constraint_violations ?? null,
+        clarification_question: result?.clarification_question ?? null,
+        cultural_tips: result?.cultural_tips ?? null,
+        final_itinerary: result?.final_itinerary ?? null,
+        pending_user_selection: result?.pending_user_selection ?? null,
+        selection_cards: result?.selection_cards ?? null,
+        prompt_text: result?.prompt_text ?? null,
+        weather_interrupt: result?.weather_interrupt ?? null,
+        weather_prompt_message: result?.weather_prompt_message ?? null,
+        weather_prompt_options: result?.weather_prompt_options ?? null,
+        step_results: result?.step_results ?? null,
+        image_results: result?.image_search_results ?? null,
+        image_validation_message: result?.image_validation_message ?? null,
+      },
+    });
+    session.updatedAt = new Date();
+  }
+
+  // ============================================================================
+  // PLANNING-MODE HITL RESUME (chat-scoped)
+  // ============================================================================
+  // The AI Engine's LangGraph thread_id IS the chat sessionId, so resuming a
+  // paused graph from a chat session uses the same id. We also write the
+  // user's choice + the resulting AI response into the chat as new messages
+  // so the conversation stays linear when reloaded from history.
+
+  private mapAIResponseToReturn(session: SessionRecord, ai: any) {
+    const aiResponseText: string =
+      ai?.response || ai?.final_response || 'Plan updated.';
+    const camel = {
+      itinerary: ai?.itinerary ?? null,
+      constraints: ai?.constraints ?? null,
+      clarificationQuestion: ai?.clarification_question ?? null,
+      culturalTips: ai?.cultural_tips ?? null,
+      finalItinerary: ai?.final_itinerary ?? ai?.map_ready_itinerary ?? null,
+      pendingUserSelection: ai?.pending_user_selection ?? null,
+      selectionCards: ai?.selection_cards ?? null,
+      promptText: ai?.prompt_text ?? null,
+      weatherInterrupt: ai?.weather_interrupt ?? null,
+      weatherPromptMessage: ai?.weather_prompt_message ?? null,
+      weatherPromptOptions: ai?.weather_prompt_options ?? null,
+      stepResults: ai?.step_results ?? null,
+    };
+
+    const assistantMsg: StoredMessage = {
+      id: makeMessageId(),
+      role: 'assistant',
+      content: aiResponseText,
+      timestamp: new Date().toISOString(),
+      metadata: {
+        intent: ai?.intent ?? null,
+        ...ai?.metadata,
+        ...{
+          itinerary: camel.itinerary,
+          constraints: camel.constraints,
+          clarification_question: camel.clarificationQuestion,
+          cultural_tips: camel.culturalTips,
+          final_itinerary: camel.finalItinerary,
+          pending_user_selection: camel.pendingUserSelection,
+          selection_cards: camel.selectionCards,
+          prompt_text: camel.promptText,
+          weather_interrupt: camel.weatherInterrupt,
+          weather_prompt_message: camel.weatherPromptMessage,
+          weather_prompt_options: camel.weatherPromptOptions,
+          step_results: camel.stepResults,
+        },
+      },
+    };
+    session.messages.push(assistantMsg);
+    session.updatedAt = new Date();
+
+    return {
+      session: sessionSummary(session),
+      response: aiResponseText,
+      intent: ai?.intent ?? null,
+      metadata: ai?.metadata ?? {},
+      imageResults: null,
+      imageValidationMessage: null,
+      userImageUrl: null,
+      ...camel,
+    };
+  }
+
+  async resumeSelection(
+    sessionId: string,
+    userId: string,
+    selectedCandidateId: string,
+    userVisibleLabel?: string
+  ): Promise<any> {
+    const session = sessionStore.get(sessionId);
+    if (!session || session.userId !== userId) {
+      throw new Error(`Chat session ${sessionId} not found for user`);
+    }
+
+    // Push a synthetic user message for the picked candidate so the chat
+    // history reads naturally on reload.
+    session.messages.push({
+      id: makeMessageId(),
+      role: 'user',
+      content: userVisibleLabel
+        ? `Selected: ${userVisibleLabel}`
+        : `Selected option: ${selectedCandidateId}`,
+      timestamp: new Date().toISOString(),
+      metadata: { selection_id: selectedCandidateId, action: 'resume_selection' },
+    });
+
+    const ai = await aiEngineService.resumeSelection(sessionId, selectedCandidateId, userId);
+    return this.mapAIResponseToReturn(session, ai);
+  }
+
+  async resumeWeather(
+    sessionId: string,
+    userId: string,
+    choice: 'switch_indoor' | 'reschedule' | 'keep'
+  ): Promise<any> {
+    const session = sessionStore.get(sessionId);
+    if (!session || session.userId !== userId) {
+      throw new Error(`Chat session ${sessionId} not found for user`);
+    }
+
+    const labels: Record<string, string> = {
+      switch_indoor: 'Switch to indoor activities',
+      reschedule: 'Reschedule the affected stops',
+      keep: 'Keep the original plan',
+    };
+    session.messages.push({
+      id: makeMessageId(),
+      role: 'user',
+      content: labels[choice] || choice,
+      timestamp: new Date().toISOString(),
+      metadata: { weather_choice: choice, action: 'resume_weather' },
+    });
+
+    const ai = await aiEngineService.resumeWeather(sessionId, choice, userId);
+    return this.mapAIResponseToReturn(session, ai);
   }
 
   async getOrCreateSession(userId: string, sessionId?: string, context?: any): Promise<any> {
@@ -256,6 +512,7 @@ export class ChatSessionService {
         role: m.role,
         content: m.content,
         timestamp: m.timestamp,
+        imageUrl: m.imageUrl || null,
         metadata: m.metadata,
       }));
   }

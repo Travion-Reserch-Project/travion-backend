@@ -131,6 +131,39 @@ router.post(
   chatController.sendMessage
 );
 
+/**
+ * @route   POST /chat/sessions/:sessionId/messages/stream
+ * @desc    Stream chat response (SSE) for live agent progress
+ * @access  Private
+ */
+router.post(
+  '/sessions/:sessionId/messages/stream',
+  validateParams(sessionIdParamSchema),
+  chatController.streamMessage
+);
+
+/**
+ * @route   POST /chat/sessions/:sessionId/resume-selection
+ * @desc    Resume the planning agent after the user picks a HITL card
+ * @access  Private
+ */
+router.post(
+  '/sessions/:sessionId/resume-selection',
+  validateParams(sessionIdParamSchema),
+  chatController.resumeSelection
+);
+
+/**
+ * @route   POST /chat/sessions/:sessionId/resume-weather
+ * @desc    Resume the planning agent after the user makes a weather decision
+ * @access  Private
+ */
+router.post(
+  '/sessions/:sessionId/resume-weather',
+  validateParams(sessionIdParamSchema),
+  chatController.resumeWeather
+);
+
 // ============================================================================
 // SESSION STATUS OPERATIONS
 // ============================================================================
