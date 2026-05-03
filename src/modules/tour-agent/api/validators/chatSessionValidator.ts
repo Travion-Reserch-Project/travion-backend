@@ -43,6 +43,7 @@ export const sendMessageSchema = Joi.object({
   message: Joi.string().min(1).max(2000).required()
     .messages({ 'any.required': 'Message is required' }),
   context: contextSchema,
+  imageBase64: Joi.string().max(15_000_000).allow('', null),
 });
 
 // ============================================================================
@@ -54,6 +55,7 @@ export const quickChatSchema = Joi.object({
     .messages({ 'any.required': 'Message is required' }),
   sessionId: Joi.string().max(100),
   context: contextSchema,
+  imageBase64: Joi.string().max(15_000_000).allow('', null),
 });
 
 // ============================================================================

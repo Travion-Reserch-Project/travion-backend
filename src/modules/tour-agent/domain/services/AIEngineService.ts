@@ -44,6 +44,9 @@ import type {
   SimpleRecommendationResponse,
   // Hotel search
   HotelSearchResponse,
+  // Image search & validation
+  ImageSearchResponse,
+  ImageValidateResponse,
   // Common types
   UserPreferenceScores,
 } from '../types/aiEngine';
@@ -118,7 +121,8 @@ export class AIEngineService {
       currentLocation?: { latitude: number; longitude: number };
       preferences?: UserPreferenceScores;
     },
-    userId?: string
+    userId?: string,
+    imageBase64?: string
   ): Promise<ChatResponse> {
     try {
       const request: ChatRequest = {
@@ -126,6 +130,7 @@ export class AIEngineService {
         thread_id: threadId,
         user_id: userId,
         context,
+        image_base64: imageBase64,
       };
 
       return await httpClient.postWithLongTimeout<ChatResponse>(
@@ -730,6 +735,75 @@ export class AIEngineService {
       );
     } catch (error) {
       this.handleError(error, 'simple recommendations');
+    }
+  }
+
+  // ============================================================================
+  // IMAGE SEARCH & VALIDATION API
+  // ============================================================================
+
+  /**
+   * Text-to-image search using CLIP embeddings
+   */
+  async imageSearch(
+    query: string,
+    locationFilter?: string,
+    topK: number = 5
+  ): Promise<ImageSearchResponse> {
+    try {
+      return await httpClient.postWithLongTimeout<ImageSearchResponse>(
+        aiEngineConfig.endpoints.imageSearch,
+        {
+          query,
+          location_filter: locationFilter,
+          top_k: topK,
+        },
+        60000
+      );
+    } catch (error) {
+      this.handleError(error, 'image search');
+    }
+  }
+
+  /**
+   * Image-to-image search — upload a photo, find similar destinations
+   */
+  async imageSearchUpload(
+    imageBase64: string,
+    message?: string,
+    locationFilter?: string,
+    topK: number = 5,
+    runValidation: boolean = true
+  ): Promise<ImageSearchResponse> {
+    try {
+      return await httpClient.postWithLongTimeout<ImageSearchResponse>(
+        aiEngineConfig.endpoints.imageSearchUpload,
+        {
+          image_base64: imageBase64,
+          message,
+          location_filter: locationFilter,
+          top_k: topK,
+          run_validation: runValidation,
+        },
+        120000
+      );
+    } catch (error) {
+      this.handleError(error, 'image upload search');
+    }
+  }
+
+  /**
+   * Validate an image (tourism content check only)
+   */
+  async imageValidate(imageBase64: string): Promise<ImageValidateResponse> {
+    try {
+      return await httpClient.postWithLongTimeout<ImageValidateResponse>(
+        aiEngineConfig.endpoints.imageValidate,
+        { image_base64: imageBase64 },
+        60000
+      );
+    } catch (error) {
+      this.handleError(error, 'image validation');
     }
   }
 }

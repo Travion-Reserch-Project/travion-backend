@@ -37,6 +37,7 @@ export interface ChatRequest {
   user_id?: string; // User ID for user-specific chat history isolation
   stream?: boolean; // Enable streaming response (default: false)
   context?: ChatContext; // Optional context for chat
+  image_base64?: string; // Base64-encoded image for visual search
 }
 
 export interface ItinerarySlot {
@@ -71,17 +72,47 @@ export interface ReasoningLog {
   details: string; // Additional info
 }
 
+export interface ImageSearchResult {
+  image_id: string;
+  location_name: string;
+  description: string;
+  image_url: string;
+  similarity_score: number;
+  tags: string;
+  coordinates?: { lat: number; lng: number };
+}
+
+export interface ImageSearchResponse {
+  query: string;
+  results: ImageSearchResult[];
+  total_results: number;
+  embedding_model: string;
+  validated?: boolean;
+  validation_message?: string;
+}
+
+export interface ImageValidateResponse {
+  is_valid: boolean;
+  message: string;
+  positive_score: number;
+  negative_score: number;
+  rejection_reason?: string;
+}
+
 export interface ChatResponse {
   query: string; // Original user query
-  intent: 'greeting' | 'tourism_query' | 'trip_planning' | 'real_time_info' | 'off_topic';
+  intent: 'greeting' | 'tourism_query' | 'trip_planning' | 'real_time_info' | 'off_topic' | 'image_query';
   response: string; // Final generated response
   itinerary?: ItinerarySlot[]; // Structured plan (for trip_planning)
   constraints?: ConstraintViolation[];
   reasoning_logs?: ReasoningLog[];
+  image_results?: ImageSearchResult[];
+  image_validation_message?: string;
   metadata: {
     reasoning_loops: number; // 0-2
     documents_retrieved: number;
     web_search_used: boolean;
+    has_image_query?: boolean;
   };
 }
 
