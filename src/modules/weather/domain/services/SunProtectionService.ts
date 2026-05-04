@@ -93,8 +93,7 @@ export class SunProtectionService {
         'Humidity_%': humidityPct,
       };
 
-      const mlServiceUrl =
-        process.env.WEATHER_ML_SERVICE_URL || 'http://localhost:8002/api/weather/predict';
+      const mlServiceUrl = 'http://localhost:8002/api/weather/predict';
 
       logger.info(`Calling ML service at ${mlServiceUrl}`);
       const mlResponse = await axios.post(mlServiceUrl, {
