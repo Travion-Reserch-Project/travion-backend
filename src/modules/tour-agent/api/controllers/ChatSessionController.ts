@@ -7,6 +7,9 @@ import { Response, NextFunction } from 'express';
 import { AuthRequest } from '../../../../shared/middleware/auth';
 import { ChatSessionService } from '../../domain/services/ChatSessionService';
 import { AppError } from '../../../../shared/middleware/errorHandler';
+import { aiEngineConfig } from '../../../../shared/config/aiEngine';
+import { logger } from '../../../../shared/config/logger';
+import { uploadImageToImageKit } from '../../../../shared/utils/imageKitService';
 
 export class ChatSessionController {
   private chatService: ChatSessionService;
@@ -152,7 +155,7 @@ export class ChatSessionController {
         throw new AppError('Unauthorized', 401);
       }
 
-      const { message } = req.body;
+      const { message, imageBase64 } = req.body;
       if (!message || message.trim().length === 0) {
         throw new AppError('Message is required', 400);
       }
@@ -160,7 +163,9 @@ export class ChatSessionController {
       const result = await this.chatService.sendMessage(
         req.params.sessionId,
         req.user.userId,
-        message
+        message,
+        undefined,
+        imageBase64
       );
 
       res.status(200).json({
@@ -173,6 +178,23 @@ export class ChatSessionController {
           constraints: result.constraints,
           metadata: result.metadata,
           messageCount: result.session.messageCount,
+          imageResults: result.imageResults,
+          imageValidationMessage: result.imageValidationMessage,
+          userImageUrl: result.userImageUrl || null,
+          // Tour-planning artifacts surfaced from the AI Engine so the
+          // chat screen can render clarification questions, HITL cards,
+          // the final tour plan card, weather prompts, and live progress.
+          clarificationQuestion: result.clarificationQuestion ?? null,
+          culturalTips: result.culturalTips ?? null,
+          finalItinerary: result.finalItinerary ?? null,
+          pendingUserSelection: result.pendingUserSelection ?? null,
+          selectionCards: result.selectionCards ?? null,
+          promptText: result.promptText ?? null,
+          weatherInterrupt: result.weatherInterrupt ?? null,
+          weatherPromptMessage: result.weatherPromptMessage ?? null,
+          weatherPromptOptions: result.weatherPromptOptions ?? null,
+          stepResults: result.stepResults ?? null,
+          threadId: result.session.sessionId,
         },
       });
     } catch (error) {
@@ -190,7 +212,7 @@ export class ChatSessionController {
         throw new AppError('Unauthorized', 401);
       }
 
-      const { message, sessionId, context } = req.body;
+      const { message, sessionId, context, imageBase64 } = req.body;
       if (!message || message.trim().length === 0) {
         throw new AppError('Message is required', 400);
       }
@@ -205,7 +227,9 @@ export class ChatSessionController {
       const result = await this.chatService.sendMessage(
         session.sessionId,
         req.user.userId,
-        message
+        message,
+        undefined,
+        imageBase64
       );
 
       res.status(200).json({
@@ -218,6 +242,257 @@ export class ChatSessionController {
           constraints: result.constraints,
           metadata: result.metadata,
           messageCount: result.session.messageCount,
+          imageResults: result.imageResults,
+          imageValidationMessage: result.imageValidationMessage,
+          userImageUrl: result.userImageUrl || null,
+          // Tour-planning artifacts surfaced from the AI Engine so the
+          // chat screen can render clarification questions, HITL cards,
+          // the final tour plan card, weather prompts, and live progress.
+          clarificationQuestion: result.clarificationQuestion ?? null,
+          culturalTips: result.culturalTips ?? null,
+          finalItinerary: result.finalItinerary ?? null,
+          pendingUserSelection: result.pendingUserSelection ?? null,
+          selectionCards: result.selectionCards ?? null,
+          promptText: result.promptText ?? null,
+          weatherInterrupt: result.weatherInterrupt ?? null,
+          weatherPromptMessage: result.weatherPromptMessage ?? null,
+          weatherPromptOptions: result.weatherPromptOptions ?? null,
+          stepResults: result.stepResults ?? null,
+          threadId: result.session.sessionId,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  /**
+   * Stream chat response via Server-Sent Events.
+   * POST /chat/sessions/:sessionId/messages/stream
+   * Proxies the AI engine's /chat/stream endpoint and forwards step events
+   * to the mobile client. After completion, persists the user message and
+   * assistant response on the chat session.
+   */
+  streamMessage = async (
+    req: AuthRequest,
+    res: Response,
+    next: NextFunction
+  ): Promise<void> => {
+    try {
+      if (!req.user?.userId) {
+        throw new AppError('Unauthorized', 401);
+      }
+
+      const sessionId = req.params.sessionId;
+      const { message, imageBase64 } = req.body;
+      if (!message || message.trim().length === 0) {
+        throw new AppError('Message is required', 400);
+      }
+
+      // Set up SSE headers
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Connection', 'keep-alive');
+      res.setHeader('X-Accel-Buffering', 'no');
+      res.flushHeaders?.();
+
+      // Upload image first (if provided) so the user message has the CDN URL
+      let uploadedImageUrl: string | null = null;
+      if (imageBase64) {
+        try {
+          uploadedImageUrl = await uploadImageToImageKit(imageBase64);
+        } catch (e) {
+          logger.warn('streamMessage: imageKit upload failed', e);
+        }
+      }
+
+      // Persist the user message immediately
+      await this.chatService.appendUserMessage?.(sessionId, req.user.userId, message, uploadedImageUrl);
+
+      // Open SSE connection to AI engine
+      const aiUrl = `${aiEngineConfig.baseUrl}/api/v1/chat/stream`;
+      const aiBody = {
+        message,
+        thread_id: sessionId,
+        user_id: req.user.userId,
+        ...(imageBase64 ? { image_base64: imageBase64 } : {}),
+      };
+
+      const aiResp = await fetch(aiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+        body: JSON.stringify(aiBody),
+      });
+
+      if (!aiResp.ok || !aiResp.body) {
+        res.write(
+          `data: ${JSON.stringify({ type: 'error', error: `AI engine returned ${aiResp.status}` })}\n\n`
+        );
+        res.end();
+        return;
+      }
+
+      // Stream chunks through, capturing the final 'complete' frame so we
+      // can persist the assistant message into the chat session.
+      const decoder = new TextDecoder();
+      const reader = (aiResp.body as any).getReader();
+      let buffer = '';
+      let lastComplete: any = null;
+
+      try {
+        // eslint-disable-next-line no-constant-condition
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          const chunk = decoder.decode(value, { stream: true });
+          buffer += chunk;
+          // Forward raw bytes to the client so the SSE framing is preserved
+          res.write(chunk);
+
+          // Parse complete events out of the buffer to track the final frame
+          const frames = buffer.split('\n\n');
+          buffer = frames.pop() || '';
+          for (const frame of frames) {
+            const dataLine = frame
+              .split('\n')
+              .find(l => l.startsWith('data: '));
+            if (!dataLine) continue;
+            try {
+              const payload = JSON.parse(dataLine.slice(6));
+              if (payload?.type === 'complete') {
+                lastComplete = payload.result;
+              }
+            } catch {}
+          }
+        }
+      } catch (err) {
+        logger.error('streamMessage: stream reading error', err);
+      } finally {
+        try { reader.releaseLock?.(); } catch {}
+      }
+
+      // After streaming finishes, persist the assistant message
+      if (lastComplete) {
+        await this.chatService.appendAssistantMessageFromStream?.(
+          sessionId,
+          req.user.userId,
+          lastComplete
+        );
+      }
+
+      res.end();
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  /**
+   * Resume a paused planning agent after the user picks a HITL selection card.
+   * POST /chat/sessions/:sessionId/resume-selection
+   */
+  resumeSelection = async (
+    req: AuthRequest,
+    res: Response,
+    next: NextFunction
+  ): Promise<void> => {
+    try {
+      if (!req.user?.userId) {
+        throw new AppError('Unauthorized', 401);
+      }
+      const { selectedCandidateId, label } = req.body;
+      if (!selectedCandidateId) {
+        throw new AppError('selectedCandidateId is required', 400);
+      }
+
+      const result = await this.chatService.resumeSelection(
+        req.params.sessionId,
+        req.user.userId,
+        selectedCandidateId,
+        label
+      );
+
+      res.status(200).json({
+        success: true,
+        data: {
+          sessionId: result.session.sessionId,
+          response: result.response,
+          intent: result.intent,
+          itinerary: result.itinerary,
+          constraints: result.constraints,
+          metadata: result.metadata,
+          messageCount: result.session.messageCount,
+          imageResults: result.imageResults,
+          imageValidationMessage: result.imageValidationMessage,
+          userImageUrl: result.userImageUrl || null,
+          clarificationQuestion: result.clarificationQuestion ?? null,
+          culturalTips: result.culturalTips ?? null,
+          finalItinerary: result.finalItinerary ?? null,
+          pendingUserSelection: result.pendingUserSelection ?? null,
+          selectionCards: result.selectionCards ?? null,
+          promptText: result.promptText ?? null,
+          weatherInterrupt: result.weatherInterrupt ?? null,
+          weatherPromptMessage: result.weatherPromptMessage ?? null,
+          weatherPromptOptions: result.weatherPromptOptions ?? null,
+          stepResults: result.stepResults ?? null,
+          threadId: result.session.sessionId,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  /**
+   * Resume a paused planning agent after the user makes a weather decision.
+   * POST /chat/sessions/:sessionId/resume-weather
+   */
+  resumeWeather = async (
+    req: AuthRequest,
+    res: Response,
+    next: NextFunction
+  ): Promise<void> => {
+    try {
+      if (!req.user?.userId) {
+        throw new AppError('Unauthorized', 401);
+      }
+      const { choice } = req.body;
+      if (!choice || !['switch_indoor', 'reschedule', 'keep'].includes(choice)) {
+        throw new AppError(
+          "choice must be one of 'switch_indoor', 'reschedule', or 'keep'",
+          400
+        );
+      }
+
+      const result = await this.chatService.resumeWeather(
+        req.params.sessionId,
+        req.user.userId,
+        choice
+      );
+
+      res.status(200).json({
+        success: true,
+        data: {
+          sessionId: result.session.sessionId,
+          response: result.response,
+          intent: result.intent,
+          itinerary: result.itinerary,
+          constraints: result.constraints,
+          metadata: result.metadata,
+          messageCount: result.session.messageCount,
+          imageResults: result.imageResults,
+          imageValidationMessage: result.imageValidationMessage,
+          userImageUrl: result.userImageUrl || null,
+          clarificationQuestion: result.clarificationQuestion ?? null,
+          culturalTips: result.culturalTips ?? null,
+          finalItinerary: result.finalItinerary ?? null,
+          pendingUserSelection: result.pendingUserSelection ?? null,
+          selectionCards: result.selectionCards ?? null,
+          promptText: result.promptText ?? null,
+          weatherInterrupt: result.weatherInterrupt ?? null,
+          weatherPromptMessage: result.weatherPromptMessage ?? null,
+          weatherPromptOptions: result.weatherPromptOptions ?? null,
+          stepResults: result.stepResults ?? null,
+          threadId: result.session.sessionId,
         },
       });
     } catch (error) {
