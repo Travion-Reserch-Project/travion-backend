@@ -49,7 +49,7 @@ export interface SafetyAlert {
     | 'Other';
 }
 
-// Main Response Interface
+// Main API Response Interface
 export interface SafetyPredictionResponse {
   success: boolean;
   location: {
@@ -89,11 +89,13 @@ export class SafetyService {
     longitude: number
   ): Promise<SafetyPredictionResponse> {
     try {
+      //Get location features
       const locationInfo = await this.googleMapsService.extractLocationFeatures(
         latitude,
         longitude
       );
 
+      //Prepare ML input
       const mlInput: MLModelInput = {
         lat: latitude,
         lon: longitude,
@@ -176,6 +178,7 @@ export class SafetyService {
         user_location: null, // Optional field
       };
 
+      // Send POST request to ML server
       const response = await axios.post(`${this.mlApiUrl}/predict`, requestBody, {
         headers: { 'Content-Type': 'application/json' },
         timeout: 15000, // 15 second timeout
@@ -384,6 +387,7 @@ export class SafetyService {
     // Calculate time ago
     const timeAgo = this.getTimeAgo(incident.incidentTime);
 
+    //return alert
     return {
       id: `incident-${incident._id || index}`,
       title: `Reported ${timeAgo}`, // Simple title - UI will prepend incident type and severity

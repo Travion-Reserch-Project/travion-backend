@@ -87,7 +87,7 @@ export class IncidentReportService {
         const distance = 'nearby'; // You can calculate actual distance if needed
 
         // Trigger push notification asynchronously (don't wait for it)
-        pushNotificationService
+        pushNotificationService //This sends alert to: users within 5km, except reporter
           .sendIncidentAlertToNearby(
             report.location.latitude,
             report.location.longitude,

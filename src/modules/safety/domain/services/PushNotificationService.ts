@@ -20,7 +20,7 @@ export interface NotificationPayload {
 }
 
 export class PushNotificationService {
-  private initialized: boolean = false;
+  private initialized: boolean = false; //avoid initializing Firebase twice
 
   /**
    * Filter out undefined values from data object for Firebase
@@ -99,6 +99,7 @@ export class PushNotificationService {
         notification.data?.type === 'uv_health_alert' || notification.data?.riskLevel !== undefined;
       const channelId = isUVAlert ? 'uv_health_alerts' : 'incident_alerts';
 
+      //build message
       const message: admin.messaging.Message = {
         token: deviceToken,
         notification: {
@@ -124,6 +125,7 @@ export class PushNotificationService {
         },
       };
 
+      //send via Firebase
       const response = await admin.messaging().send(message);
       console.log('[PushNotificationService] Notification sent successfully:', response);
       return true;
@@ -240,7 +242,7 @@ export class PushNotificationService {
     reporterDeviceToken?: string
   ): Promise<{ notifiedCount: number }> {
     try {
-      // Find nearby active devices (excluding the reporter's device)
+      // Find nearby active devices within radius (excluding the reporter's device)
       const nearbyDevices = await (DeviceToken as any).findNearbyDevices(
         longitude,
         latitude,
@@ -290,11 +292,11 @@ export class PushNotificationService {
    * Send system notification to a specific user
    */
   async sendToUser(
-    userId: mongoose.Types.ObjectId,
+    userId: mongoose.Types.ObjectId, //get user's devices
     notification: NotificationPayload
   ): Promise<boolean> {
     try {
-      const devices = await DeviceToken.find({ userId, isActive: true });
+      const devices = await DeviceToken.find({ userId, isActive: true }); //extract tokens
 
       if (devices.length === 0) {
         console.log(`[PushNotificationService] No active devices for user ${userId}`);

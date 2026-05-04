@@ -60,6 +60,10 @@ export class SafetyRepository {
     return await SafetyAlert.findByIdAndDelete(alertId);
   }
 
+  //This is a async function that returns the count of documents matching the filter.
+  //This function return the count later, after the database query is completed, instead of returning it immediately.
+  //It automatically returns a Promise instead of returning data immediately.
+  //await waits until MongoDB finishes counting.Then returns the number.
   async count(filter: Record<string, unknown> = {}): Promise<number> {
     return await SafetyAlert.countDocuments(filter);
   }

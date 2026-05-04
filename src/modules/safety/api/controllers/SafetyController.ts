@@ -22,12 +22,12 @@ export class SafetyController {
     _next: NextFunction
   ): Promise<void> => {
     try {
-      const errors = validationResult(req);
+      const errors = validationResult(req); //validate request
       if (!errors.isEmpty()) {
         res.status(400).json({
           success: false,
           error: {
-            message: 'Invalid request data',
+            message: 'Invalid request data', //If validation fails:
             details: errors.array(),
           },
         });
@@ -37,7 +37,7 @@ export class SafetyController {
       // userId is optional for public endpoint - will be null if not authenticated
       const userId = req.user?.userId || null;
 
-      const { latitude, longitude } = req.body;
+      const { latitude, longitude } = req.body; //extract coordinates
 
       // Validate coordinates
       if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) {
@@ -135,8 +135,9 @@ export class SafetyController {
    */
   getNearbyAlerts = async (req: AuthRequest, res: Response, _next: NextFunction): Promise<void> => {
     try {
-      const { latitude, longitude, radius, limit } = req.query;
+      const { latitude, longitude, radius, limit } = req.query; //get query params
 
+      //validate coordinates
       if (!latitude || !longitude) {
         res.status(400).json({
           success: false,
@@ -145,13 +146,15 @@ export class SafetyController {
         return;
       }
 
+      //call service to get nearby alerts
       const alerts = await this.safetyService.getNearbyAlerts(
         parseFloat(latitude as string),
         parseFloat(longitude as string),
-        radius ? parseFloat(radius as string) : 5,
-        limit ? parseInt(limit as string) : 10
+        radius ? parseFloat(radius as string) : 5, //default radius 5km
+        limit ? parseInt(limit as string) : 10 //default limit 10
       );
 
+      //return response
       res.status(200).json({
         success: true,
         data: alerts,

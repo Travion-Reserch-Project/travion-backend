@@ -8,6 +8,7 @@ const router = Router();
 const safetyController = new SafetyController();
 
 /**
+ * defines API endpoints for safety module
  * POST /api/v1/safety/predictions
  * Get safety predictions for a location using Google Maps + ML Model
  * Public endpoint - no authentication required for safety information
@@ -18,6 +19,7 @@ router.post(
   '/predictions',
   apiLimiter,
   [
+    //valid GPS coordinates
     body('latitude')
       .isFloat({ min: -90, max: 90 })
       .withMessage('Latitude must be between -90 and 90'),
